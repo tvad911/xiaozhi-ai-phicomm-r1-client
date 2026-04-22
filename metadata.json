@@ -1,0 +1,6 @@
+{
+  "name": "Xiaozhi Phicomm R1 Hub",
+  "description": "A Gemini-powered backend and dashboard for Phicomm R1 speakers running xiaozhi-client-android.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
