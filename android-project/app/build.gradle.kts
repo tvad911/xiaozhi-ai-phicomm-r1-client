@@ -60,4 +60,8 @@ dependencies {
 
     // Wake Word Engine
     implementation("ai.picovoice:porcupine-android:3.0.1")
+
+    // Testing
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("io.mockk:mockk:1.13.8")
 }

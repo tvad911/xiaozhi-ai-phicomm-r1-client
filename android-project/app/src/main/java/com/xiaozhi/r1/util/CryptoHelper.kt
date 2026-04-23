@@ -9,15 +9,19 @@ import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
-class CryptoHelper(context: Context) {
+class CryptoHelper(context: Context?, testAndroidId: String? = null) {
 
     private val secretKey: SecretKeySpec
     private val iv: IvParameterSpec
 
     init {
         // Derive a consistent key based on Android ID so it's bound to the specific device
-        @SuppressLint("HardwareIds")
-        val androidId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "fallback_id_12345"
+        val androidId = testAndroidId ?: if (context != null) {
+            Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "fallback_id_12345"
+        } else {
+            "fallback_id_12345"
+        }
+        
         val seed = "xiaozhi_r1_$androidId"
         
         // Hash the seed to get exactly 32 bytes (256 bits) for AES

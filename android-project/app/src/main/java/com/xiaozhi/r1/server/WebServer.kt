@@ -14,7 +14,7 @@ class WebServer(private val context: Context, port: Int) : NanoHTTPD(port) {
         val headers = mutableMapOf(
             "Access-Control-Allow-Origin" to "*",
             "Access-Control-Allow-Methods" to "GET, POST, PUT, DELETE, OPTIONS",
-            "Access-Control-Allow-Headers" to "Content-Type"
+            "Access-Control-Allow-Headers" to "Content-Type, X-Pin-Auth"
         )
         
         if (session.method == Method.OPTIONS) {
@@ -34,6 +34,11 @@ class WebServer(private val context: Context, port: Int) : NanoHTTPD(port) {
     }
 
     private fun serveStaticFile(uri: String): Response {
+        // Prevent Path Traversal
+        if (uri.contains("..")) {
+            return newFixedLengthResponse(Response.Status.FORBIDDEN, MIME_PLAINTEXT, "403 Forbidden")
+        }
+
         var path = uri.removePrefix("/")
         if (path.isEmpty() || !path.contains(".")) {
             path = "index.html"
