@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { GoogleGenAI } from "@google/genai";
+
 import { motion, AnimatePresence } from "motion/react";
 import { 
   Speaker, 
@@ -77,7 +77,7 @@ import {
   DownloadCloud
 } from 'lucide-react';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
 
 interface BluetoothDevice {
   id: string;
@@ -757,20 +757,20 @@ export default function App() {
     setIsTyping(true);
 
     try {
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: userMessage,
-        config: {
-          systemInstruction: systemPrompt
-        },
-        tools: [{ googleSearch: {} }]
+      // Call the Android Native Proxy Server instead of Google API directly
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: userMessage })
       });
-
-      const cleanedText = scrubResponse(response.text || "");
-      setMessages(prev => [...prev, { role: 'ai', text: cleanedText || "No response received." }]);
+      
+      const data = await response.json();
+      const cleanedText = scrubResponse(data.response || "");
+      
+      setMessages(prev => [...prev, { role: 'ai', text: cleanedText || "No response received from Android Native." }]);
     } catch (error) {
       console.error("Chat error:", error);
-      setMessages(prev => [...prev, { role: 'ai', text: "Error: " + (error instanceof Error ? error.message : "AI processing failed") }]);
+      setMessages(prev => [...prev, { role: 'ai', text: "Error connecting to Android service: " + (error instanceof Error ? error.message : "AI processing failed") }]);
     } finally {
       setIsTyping(false);
     }
