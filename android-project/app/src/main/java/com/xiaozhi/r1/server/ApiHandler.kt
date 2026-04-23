@@ -16,8 +16,18 @@ class ApiHandler(private val context: Context) {
         val uri = session.uri
         val method = session.method
 
+        // Auth Middleware
+        val isAuthRequired = configManager.currentConfig.isWebAuthEnabled
+        if (isAuthRequired && uri != "/api/auth-status") {
+            val pinHeader = session.headers["x-pin-auth"]
+            if (pinHeader != configManager.currentConfig.webUiPin) {
+                return createJsonResponse(NanoHTTPD.Response.Status.UNAUTHORIZED, mapOf("error" to "Unauthorized. Invalid PIN."))
+            }
+        }
+
         return try {
             when {
+                uri == "/api/auth-status" && method == NanoHTTPD.Method.GET -> handleAuthStatus()
                 uri == "/api/status" && method == NanoHTTPD.Method.GET -> handleStatus()
                 uri == "/api/config" && method == NanoHTTPD.Method.GET -> handleGetConfig()
                 uri == "/api/config" && method == NanoHTTPD.Method.POST -> handleUpdateConfig(session)
@@ -43,12 +53,47 @@ class ApiHandler(private val context: Context) {
         return createJsonResponse(NanoHTTPD.Response.Status.OK, status)
     }
 
+    private fun handleAuthStatus(): NanoHTTPD.Response {
+        val isAuthRequired = configManager.currentConfig.isWebAuthEnabled
+        return createJsonResponse(NanoHTTPD.Response.Status.OK, mapOf("authRequired" to isAuthRequired))
+    }
+
     private fun handleGetConfig(): NanoHTTPD.Response {
-        return createJsonResponse(NanoHTTPD.Response.Status.OK, configManager.currentConfig)
+        val config = configManager.currentConfig.copy()
+        
+        // Mask LLM API Key
+        if (config.llmApiKey.length > 6) {
+            val key = config.llmApiKey
+            config.llmApiKey = "${key.substring(0, 3)}***${key.substring(key.length - 3)}"
+        } else if (config.llmApiKey.isNotEmpty()) {
+            config.llmApiKey = "***"
+        }
+
+        // Mask Picovoice Key
+        if (config.picovoiceAccessKey.length > 6) {
+            val key = config.picovoiceAccessKey
+            config.picovoiceAccessKey = "${key.substring(0, 3)}***${key.substring(key.length - 3)}"
+        } else if (config.picovoiceAccessKey.isNotEmpty()) {
+            config.picovoiceAccessKey = "***"
+        }
+
+        return createJsonResponse(NanoHTTPD.Response.Status.OK, config)
     }
 
     private fun handleUpdateConfig(session: NanoHTTPD.IHTTPSession): NanoHTTPD.Response {
-        val body = getBodyParams(session)
+        val body = getBodyParams(session).toMutableMap()
+        
+        // Ignore masked keys to prevent overwriting real keys
+        val llmKey = body["llmApiKey"] as? String
+        if (llmKey != null && llmKey.contains("***")) {
+            body.remove("llmApiKey")
+        }
+        
+        val pvKey = body["picovoiceAccessKey"] as? String
+        if (pvKey != null && pvKey.contains("***")) {
+            body.remove("picovoiceAccessKey")
+        }
+
         configManager.updateConfig(body)
         
         // Broadcast change to reconnect WebSocketProtocol or Standalone mode if config changed

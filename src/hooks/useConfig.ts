@@ -8,6 +8,8 @@ export interface Persona {
 }
 
 export interface AppConfig {
+  isWebAuthEnabled: boolean;
+  webUiPin: string;
   useStandaloneMode: boolean;
   serverUrl: string;
   picovoiceAccessKey: string;
@@ -28,13 +30,18 @@ export interface AppConfig {
 export function useConfig() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authRequired, setAuthRequired] = useState(false);
 
   const loadConfig = async () => {
     try {
       const data = await fetchApi<AppConfig>('/api/config');
       setConfig(data);
-    } catch (err) {
+      setAuthRequired(false);
+    } catch (err: any) {
       console.error('Failed to load config', err);
+      if (err?.status === 401) {
+        setAuthRequired(true);
+      }
     } finally {
       setLoading(false);
     }
@@ -55,8 +62,18 @@ export function useConfig() {
   };
 
   useEffect(() => {
-    loadConfig();
+    // Check auth status first
+    fetchApi<{authRequired: boolean}>('/api/auth-status')
+      .then(res => {
+        if (res.authRequired && !localStorage.getItem('r1_web_pin')) {
+          setAuthRequired(true);
+          setLoading(false);
+        } else {
+          loadConfig();
+        }
+      })
+      .catch(() => loadConfig());
   }, []);
 
-  return { config, loading, updateConfig, refetch: loadConfig };
+  return { config, loading, authRequired, setAuthRequired, updateConfig, refetch: loadConfig };
 }

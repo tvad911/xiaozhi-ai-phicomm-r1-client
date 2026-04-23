@@ -23,6 +23,11 @@ export async function fetchApi<T>(endpoint: string, options: ApiOptions = {}): P
   
   const headers = new Headers(options.headers || {});
   
+  const savedPin = localStorage.getItem('r1_web_pin');
+  if (savedPin) {
+    headers.set('x-pin-auth', savedPin);
+  }
+  
   if (options.data) {
     options.body = JSON.stringify(options.data);
     headers.set('Content-Type', 'application/json');
@@ -45,7 +50,9 @@ export async function fetchApi<T>(endpoint: string, options: ApiOptions = {}): P
     }
 
     if (!response.ok) {
-      throw new Error(data?.message || `API Error: ${response.status} ${response.statusText}`);
+      const err = new Error(data?.error || data?.message || `API Error: ${response.status} ${response.statusText}`);
+      (err as any).status = response.status;
+      throw err;
     }
 
     return data as T;

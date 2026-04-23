@@ -3,6 +3,7 @@ package com.xiaozhi.r1.manager
 import android.content.Context
 import android.content.SharedPreferences
 import com.google.gson.Gson
+import com.xiaozhi.r1.util.CryptoHelper
 
 data class Persona(
     val id: String,
@@ -11,6 +12,8 @@ data class Persona(
 )
 
 data class AppConfig(
+    var isWebAuthEnabled: Boolean = false,
+    var webUiPin: String = "",
     var useStandaloneMode: Boolean = false,
     var serverUrl: String = "wss://api.xiaozhi.me",
     var picovoiceAccessKey: String = "",
@@ -36,6 +39,7 @@ data class AppConfig(
 
 class ConfigManager(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("R1Config", Context.MODE_PRIVATE)
+    private val cryptoHelper = CryptoHelper(context)
     private val gson = Gson()
     var currentConfig: AppConfig = AppConfig()
         private set
@@ -45,19 +49,37 @@ class ConfigManager(context: Context) {
     }
 
     private fun loadConfig() {
-        val configJson = prefs.getString("config_json", null)
-        if (configJson != null) {
+        val encryptedJson = prefs.getString("config_json_encrypted", null)
+        if (encryptedJson != null) {
             try {
-                currentConfig = gson.fromJson(configJson, AppConfig::class.java)
+                val decryptedJson = cryptoHelper.decrypt(encryptedJson)
+                if (decryptedJson.startsWith("{")) {
+                    currentConfig = gson.fromJson(decryptedJson, AppConfig::class.java)
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
+            }
+        } else {
+            // Fallback for old plaintext config migration
+            val configJson = prefs.getString("config_json", null)
+            if (configJson != null) {
+                try {
+                    currentConfig = gson.fromJson(configJson, AppConfig::class.java)
+                    // Save encrypted format immediately
+                    saveConfig(currentConfig)
+                    prefs.edit().remove("config_json").apply()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
             }
         }
     }
 
     fun saveConfig(config: AppConfig) {
         currentConfig = config
-        prefs.edit().putString("config_json", gson.toJson(config)).apply()
+        val plainJson = gson.toJson(config)
+        val encryptedJson = cryptoHelper.encrypt(plainJson)
+        prefs.edit().putString("config_json_encrypted", encryptedJson).apply()
     }
 
     fun updateConfig(partialUpdate: Map<String, Any>) {

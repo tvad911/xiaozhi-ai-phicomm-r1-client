@@ -129,9 +129,12 @@ interface WifiNetwork {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'status' | 'chat' | 'setup' | 'bluetooth' | 'media' | 'casting'>('status');
+  const [activeTab, setActiveTab] = useState<'status' | 'chat' | 'setup' | 'bluetooth' | 'media' | 'casting' | 'security'>('status');
   const [messages, setMessages] = useState<{ role: 'user' | 'ai'; text: string }[]>([]);
   const [input, setInput] = useState('');
+  const [isLocked, setIsLocked] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [isScanningWifi, setIsScanningWifi] = useState(false);
@@ -193,7 +196,28 @@ export default function App() {
   const [voiceSpeed, setVoiceSpeed] = useState(1.0);
   const [uiTheme, setUiTheme] = useState<'system' | 'matrix' | 'classic'>('matrix');
   // AI & Mic settings
-  const { config, updateConfig } = useConfig();
+  const { config, loading, authRequired, setAuthRequired, updateConfig, refetch, fetchApi } = useConfig();
+  
+  const handlePinSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (pinInput.length < 4) return;
+    
+    // Test the PIN
+    localStorage.setItem('r1_web_pin', pinInput);
+    try {
+      const data = await fetchApi<any>('/api/config');
+      if (data) {
+        setAuthRequired(false);
+        setPinError(false);
+        refetch();
+      }
+    } catch (err: any) {
+      if (err?.status === 401) {
+        setPinError(true);
+        localStorage.removeItem('r1_web_pin');
+      }
+    }
+  };
   const [activationSensitivity, setActivationSensitivity] = useState(70);
   const [silenceTimeout, setSilenceTimeout] = useState(1500);
   const [otaVersion, setOtaVersion] = useState('1.5.2');
@@ -777,6 +801,30 @@ export default function App() {
     }
   };
 
+  if (loading) return <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center text-white font-bold">Loading R1 Interface...</div>;
+
+  if (authRequired) {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center p-6">
+        <form onSubmit={handlePinSubmit} className="bg-zinc-900 border border-zinc-800 p-8 rounded-3xl w-full max-w-sm text-center shadow-2xl">
+          <Lock size={48} className="text-orange-500 mx-auto mb-6" />
+          <h2 className="text-xl font-bold text-white mb-2">Yêu cầu truy cập</h2>
+          <p className="text-zinc-500 text-sm mb-6">Nhập mã PIN để mở khoá Web UI</p>
+          <input 
+            type="password" 
+            maxLength={6}
+            value={pinInput}
+            onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))}
+            className="w-full bg-black border border-zinc-800 rounded-xl p-4 text-center text-2xl font-mono text-white mb-4 outline-none focus:border-orange-500"
+            placeholder="●●●●"
+          />
+          {pinError && <p className="text-red-500 text-xs mb-4">Mã PIN không chính xác!</p>}
+          <button type="submit" className="w-full bg-orange-600 hover:bg-orange-500 text-white font-bold py-3 rounded-xl transition-all">Mở khoá</button>
+        </form>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-zinc-100 font-sans selection:bg-orange-500/30">
       {/* Background Grid Accent */}
@@ -805,7 +853,7 @@ export default function App() {
               { id: 'bluetooth', label: 'Connectivity', icon: Network },
               { id: 'casting', label: 'Streaming', icon: Cast },
               { id: 'smarthome', label: 'Smart Home', icon: Home },
-              { id: 'utilities', label: 'Utilities', icon: Clock },
+              { id: 'security', label: 'Security', icon: ShieldCheck },
               { id: 'setup', label: 'Setup Guide', icon: Settings },
             ].map((tab) => (
               <button
@@ -3243,6 +3291,75 @@ export default function App() {
                     Biến chiếc loa Phicomm R1 cũ của bạn thành một trợ lý AI mạnh mẽ sử dụng trí tuệ nhân tạo từ Google. 
                     Mọi yêu cầu giọng nói sẽ được gửi qua hub này để xử lý bởi Gemini.
                   </p>
+                </div>
+              </motion.div>
+            )}
+
+            {activeTab === 'security' && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="max-w-4xl mx-auto space-y-8"
+              >
+                <div className="space-y-6">
+                  <div className="flex items-center gap-4 mb-8">
+                    <div className="w-12 h-12 bg-red-500/20 rounded-2xl flex items-center justify-center border border-red-500/30">
+                      <ShieldCheck className="text-red-400" size={24} />
+                    </div>
+                    <div>
+                      <h2 className="text-3xl font-bold text-white tracking-tight">Bảo mật & Mã hoá</h2>
+                      <p className="text-zinc-400">Kiểm soát quyền truy cập Web UI và mã hoá dữ liệu</p>
+                    </div>
+                  </div>
+
+                  <div className="bg-zinc-900/80 border border-zinc-800 rounded-3xl p-8">
+                    <div className="flex items-center justify-between mb-6">
+                      <div>
+                        <h4 className="text-lg font-bold text-white mb-1">Mã PIN Web UI</h4>
+                        <p className="text-sm text-zinc-400">Yêu cầu nhập mã PIN 6 số mỗi khi truy cập trang cấu hình này.</p>
+                      </div>
+                      <button 
+                        onClick={() => {
+                          if (config?.isWebAuthEnabled) {
+                            if (confirm("Bạn có chắc chắn muốn TẮT tính năng bảo mật bằng mã PIN không?")) {
+                              updateConfig({ isWebAuthEnabled: false, webUiPin: "" });
+                              localStorage.removeItem("r1_web_pin");
+                            }
+                          } else {
+                            const pin = prompt("Nhập mã PIN mới (4-6 số):");
+                            if (pin && /^\\d{4,6}$/.test(pin)) {
+                              updateConfig({ isWebAuthEnabled: true, webUiPin: pin });
+                              localStorage.setItem("r1_web_pin", pin);
+                              alert("Đã bật xác thực PIN thành công! Hãy lưu lại mã PIN này.");
+                            } else {
+                              alert("Mã PIN không hợp lệ. Phải bao gồm 4-6 chữ số.");
+                            }
+                          }
+                        }}
+                        className={`w-12 h-6 rounded-full transition-colors relative ${config?.isWebAuthEnabled ? 'bg-emerald-600' : 'bg-zinc-700'}`}
+                      >
+                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${config?.isWebAuthEnabled ? 'right-1' : 'left-1'}`} />
+                      </button>
+                    </div>
+                    
+                    {config?.isWebAuthEnabled && (
+                      <div className="bg-black/50 p-4 rounded-xl border border-zinc-800 mt-4">
+                        <p className="text-emerald-400 mb-1 text-sm font-bold">TRẠNG THÁI: ĐÃ BẬT</p>
+                        <p className="text-zinc-300 text-sm">Giao diện này hiện đã được bảo vệ. Hãy cẩn thận không để mất mã PIN.</p>
+                      </div>
+                    )}
+
+                    <div className="mt-8 border-t border-zinc-800 pt-8">
+                      <h4 className="text-lg font-bold text-white mb-4">Mã hoá Bộ nhớ (Data Encryption)</h4>
+                      <div className="bg-emerald-500/10 p-4 rounded-xl border border-emerald-500/20">
+                        <p className="text-emerald-400 mb-1 text-sm font-bold flex items-center gap-2">
+                          <ShieldCheck size={16} /> BẢO VỆ TOÀN VẸN BẰNG AES-256
+                        </p>
+                        <p className="text-zinc-300 text-sm">Toàn bộ khoá bí mật (Secret Keys) của bạn được lưu trữ trên R1 đã được tự động mã hoá bằng thuật toán AES. Dù có bị trích xuất file XML, kẻ gian cũng không thể giải mã được.</p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </motion.div>
             )}
