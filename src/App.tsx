@@ -73,7 +73,8 @@ import {
   Lightbulb,
   Thermometer,
   Bell,
-  Timer
+  Timer,
+  DownloadCloud
 } from 'lucide-react';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -159,6 +160,7 @@ export default function App() {
   const [newProfileAutoReconnect, setNewProfileAutoReconnect] = useState(false);
   const [pairingPin, setPairingPin] = useState<string | null>(null);
   const [verifyingId, setVerifyingId] = useState<string | null>(null);
+  const [pairingLogs, setPairingLogs] = useState<string[]>([]);
   const [btGroups, setBtGroups] = useState<BluetoothGroup[]>([]);
   const [showGroupCreator, setShowGroupCreator] = useState(false);
   const [editingGroup, setEditingGroup] = useState<string | null>(null);
@@ -231,8 +233,20 @@ export default function App() {
     { id: 'a2', time: '14:00', label: 'Workout Time', enabled: false, days: ['Sat', 'Sun'] }
   ]);
   const [timers, setTimers] = useState([
-    { id: 'ti1', label: 'Boil Eggs', duration: 5 * 60, remaining: 0, active: false }
+    { id: 'ti1', label: 'Boil Eggs', duration: 5 * 60, remaining: 5 * 60, active: false }
   ]);
+  
+  const [ringingAlarmId, setRingingAlarmId] = useState<string | null>(null);
+  const [ringingTimerId, setRingingTimerId] = useState<string | null>(null);
+  const [lastCheckedTime, setLastCheckedTime] = useState('');
+  
+  const [showAddAlarm, setShowAddAlarm] = useState(false);
+  const [newAlarmTime, setNewAlarmTime] = useState('07:00');
+  const [newAlarmLabel, setNewAlarmLabel] = useState('New Alarm');
+  
+  const [showAddTimer, setShowAddTimer] = useState(false);
+  const [newTimerLabel, setNewTimerLabel] = useState('New Timer');
+  const [newTimerMinutes, setNewTimerMinutes] = useState(5);
 
   // Initial Setup / Provisioning State
   const [showSetupWizard, setShowSetupWizard] = useState(false);
@@ -354,6 +368,56 @@ export default function App() {
     return () => clearInterval(interval);
   }, [isMediaPlaying, currentTrack, mediaQueue, isShuffle, repeatMode]);
 
+  // Timers Tick Logic
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTimers(prev => {
+        let hasChanges = false;
+        const newTimers = prev.map(t => {
+          if (t.active && t.remaining > 0) {
+            hasChanges = true;
+            const newRem = t.remaining - 1;
+            if (newRem <= 0) {
+              setRingingTimerId(t.id);
+              return { ...t, remaining: 0, active: false };
+            }
+            return { ...t, remaining: newRem };
+          }
+          return t;
+        });
+        return hasChanges ? newTimers : prev;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Alarms Checker Logic
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = new Date();
+      const currentString = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+      
+      setLastCheckedTime(prev => {
+        if (prev !== currentString) {
+          const dayMap = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+          const currentDay = dayMap[now.getDay()];
+          
+          setAlarms(currentAlarms => {
+            currentAlarms.forEach(a => {
+              if (a.enabled && a.time === currentString && a.days.includes(currentDay)) {
+                setRingingAlarmId(a.id);
+              }
+            });
+            return currentAlarms;
+          });
+          return currentString;
+        }
+        return prev;
+      });
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -389,12 +453,18 @@ export default function App() {
     setBtDevices(prev => prev.map(d => 
       d.id === id ? { ...d, pairingStatus: 'pairing' } : d
     ));
+    setPairingLogs(['Initializing secure handshake...', 'Requesting identity from peripheral...']);
 
     // Simulate network delay then show PIN
     setTimeout(() => {
-      const pin = Math.floor(100000 + Math.random() * 900000).toString();
-      setPairingPin(pin);
-      setVerifyingId(id);
+      setPairingLogs(prev => [...prev, 'Identity received. Negotiating encryption keys...', 'Waiting for PIN synchronization...']);
+      
+      setTimeout(() => {
+        const pin = Math.floor(100000 + Math.random() * 900000).toString();
+        setPairingPin(pin);
+        setVerifyingId(id);
+        setPairingLogs(prev => [...prev, 'PIN generated. Please verify on your device.']);
+      }, 1500);
     }, 1500);
   };
 
@@ -402,17 +472,28 @@ export default function App() {
     if (!verifyingId) return;
 
     if (success) {
-      setBtDevices(prev => prev.map(d => 
-        d.id === verifyingId ? { ...d, pairingStatus: 'paired', connected: true } : d
-      ));
+      setPairingLogs(prev => [...prev, 'PIN verified. Finalizing encryption setup...', 'Binding device to Phicomm R1 Peripherals list...']);
+      
+      setTimeout(() => {
+        setBtDevices(prev => prev.map(d => 
+          d.id === verifyingId ? { ...d, pairingStatus: 'paired', connected: true } : d
+        ));
+        setPairingPin(null);
+        setVerifyingId(null);
+        setPairingLogs([]);
+      }, 1500);
     } else {
-      setBtDevices(prev => prev.map(d => 
-        d.id === verifyingId ? { ...d, pairingStatus: 'failed', connected: false } : d
-      ));
+      setPairingLogs(prev => [...prev, 'Pairing rejected by user or timeout.', 'Cleaning up secure session...']);
+      
+      setTimeout(() => {
+        setBtDevices(prev => prev.map(d => 
+          d.id === verifyingId ? { ...d, pairingStatus: 'failed', connected: false } : d
+        ));
+        setPairingPin(null);
+        setVerifyingId(null);
+        setPairingLogs([]);
+      }, 1000);
     }
-    
-    setPairingPin(null);
-    setVerifyingId(null);
   };
 
   const toggleConnection = (id: string) => {
@@ -1848,44 +1929,72 @@ export default function App() {
 
                 {/* PIN Verification Overlay */}
                 {pairingPin && (
-                  <motion.div 
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="bg-zinc-900 border border-zinc-700 p-8 rounded-3xl space-y-6 shadow-2xl relative z-20 text-center"
-                  >
-                    <div className="flex flex-col items-center gap-4">
-                      <div className="w-16 h-16 rounded-full bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
-                        <ShieldCheck className="text-blue-400" size={32} />
+                  <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
+                    <motion.div 
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="bg-zinc-900 border border-zinc-700 p-8 rounded-[40px] max-w-md w-full space-y-8 shadow-2xl text-center relative overflow-hidden"
+                    >
+                      {/* Background Detail */}
+                      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-600 animate-pulse" />
+
+                      <div className="flex flex-col items-center gap-6">
+                        <div className="w-20 h-20 rounded-2xl bg-blue-600/10 flex items-center justify-center border border-blue-500/20 shadow-lg shadow-blue-900/10">
+                          <ShieldCheck className="text-blue-400" size={40} />
+                        </div>
+                        <div>
+                          <h4 className="text-2xl font-bold">Secure Pair Request</h4>
+                          <p className="text-zinc-500 text-sm mt-2 max-w-[280px] mx-auto">
+                            Check the display on <strong>{btDevices.find(d => d.id === verifyingId)?.name}</strong> and confirm the code match.
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <h4 className="text-xl font-bold">Bluetooth Pairing Request</h4>
-                        <p className="text-zinc-500 text-sm mt-1">
-                          Confirm if the code below matches the one shown on <strong>{btDevices.find(d => d.id === verifyingId)?.name}</strong>
+
+                      <div className="bg-black/40 border border-zinc-800 rounded-3xl p-8 relative flex flex-col items-center">
+                        <span className="text-5xl font-mono font-bold tracking-[0.4em] text-white pl-[0.4em]">
+                          {pairingPin}
+                        </span>
+                        <div className="mt-4 flex gap-1">
+                          {[1, 2, 3, 4, 5, 6].map(i => (
+                            <div key={i} className="w-1.5 h-1.5 rounded-full bg-blue-500/30" />
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Dynamic Pairing Logs */}
+                      <div className="bg-zinc-800/30 rounded-2xl p-4 text-left border border-zinc-700/30">
+                        <p className="text-[10px] uppercase font-bold text-zinc-500 tracking-widest mb-3 flex items-center gap-2">
+                          <Terminal size={12} />
+                          Pairing Sequence
                         </p>
+                        <div className="space-y-1.5 max-h-32 overflow-y-auto pr-2 custom-scrollbar">
+                          {pairingLogs.map((log, idx) => (
+                            <div key={idx} className="flex gap-2 text-[11px]">
+                              <span className="text-blue-500 font-mono mt-0.5">[{idx + 1}]</span>
+                              <span className={idx === pairingLogs.length - 1 ? 'text-zinc-200 font-bold' : 'text-zinc-500'}>
+                                {log}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
 
-                    <div className="bg-black/50 border border-zinc-800 rounded-2xl p-6">
-                      <span className="text-5xl font-mono font-bold tracking-[0.5em] text-white pl-[0.5em]">
-                        {pairingPin}
-                      </span>
-                    </div>
-
-                    <div className="flex gap-4">
-                      <button 
-                        onClick={() => confirmPairing(false)}
-                        className="flex-1 px-6 py-3 bg-zinc-800 hover:bg-zinc-700 rounded-xl font-bold transition-colors"
-                      >
-                        Cancel
-                      </button>
-                      <button 
-                        onClick={() => confirmPairing(true)}
-                        className="flex-1 px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold transition-all shadow-lg shadow-blue-900/20"
-                      >
-                        Confirm PIN
-                      </button>
-                    </div>
-                  </motion.div>
+                      <div className="flex gap-4 pt-2">
+                        <button 
+                          onClick={() => confirmPairing(false)}
+                          className="flex-1 px-6 py-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-2xl font-bold transition-all border border-zinc-700/50"
+                        >
+                          Cancel
+                        </button>
+                        <button 
+                          onClick={() => confirmPairing(true)}
+                          className="flex-1 px-6 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-bold transition-all shadow-lg shadow-blue-900/30"
+                        >
+                          Confirm & Bind
+                        </button>
+                      </div>
+                    </motion.div>
+                  </div>
                 )}
 
                 {/* Profile Creator Overlay */}
@@ -2290,6 +2399,96 @@ export default function App() {
                   )}
                 </section>
 
+                <div className="h-px bg-zinc-800 w-full" />
+
+                {/* LED & Visuals Section */}
+                <section className="space-y-6">
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <div>
+                      <h3 className="text-2xl font-bold flex items-center gap-2">
+                        <Palette className="text-pink-500" />
+                        LED Ring Visualizer
+                      </h3>
+                      <p className="text-zinc-500 text-sm">Control the R1 hardware LED ring array colors and behavior</p>
+                    </div>
+                  </div>
+
+                  <div className="bg-zinc-900/60 border border-zinc-800 p-8 rounded-[32px] space-y-8">
+                    <div className="grid grid-cols-3 gap-4">
+                      {/* LED Modes */}
+                      {(['off', 'on', 'music'] as const).map(mode => (
+                        <button
+                          key={mode}
+                          onClick={() => setLedMode(mode)}
+                          className={`p-4 rounded-2xl border flex flex-col items-center justify-center gap-3 transition-all ${
+                            ledMode === mode 
+                              ? 'bg-pink-600/10 border-pink-500/50 text-pink-400 shadow-[0_0_20px_rgba(236,72,153,0.15)]' 
+                              : 'bg-zinc-800/50 border-zinc-700/50 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300'
+                          }`}
+                        >
+                          {mode === 'off' && <Sun size={24} className="opacity-50" />}
+                          {mode === 'on' && <Sun size={24} fill="currentColor" />}
+                          {mode === 'music' && <Activity size={24} />}
+                          <span className="text-xs uppercase font-bold tracking-widest">
+                            {mode === 'on' ? 'Solid' : mode === 'music' ? 'Pulsing' : 'Disabled'}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className={`space-y-6 transition-opacity duration-300 ${ledMode === 'off' ? 'opacity-30 pointer-events-none' : ''}`}>
+                      <div className="space-y-3">
+                        <div className="flex justify-between items-center text-sm font-bold text-zinc-300">
+                          <span>Base Color</span>
+                          <span className="font-mono text-xs px-2 py-1 bg-zinc-800 rounded-md text-pink-400">{ledColor.toUpperCase()}</span>
+                        </div>
+                        <div className="flex gap-4 items-center">
+                          <input 
+                            type="color" 
+                            value={ledColor} 
+                            onChange={(e) => setLedColor(e.target.value)}
+                            className="w-12 h-12 rounded-xl cursor-pointer bg-zinc-800 border-0 p-1"
+                          />
+                          <div className="flex-1 grid grid-cols-7 gap-2">
+                            {['#ea580c', '#ef4444', '#ec4899', '#8b5cf6', '#3b82f6', '#10b981', '#ffffff'].map(preset => (
+                              <button
+                                key={preset}
+                                onClick={() => setLedColor(preset)}
+                                className={`h-10 rounded-lg transition-transform hover:scale-105 border-2 ${
+                                  ledColor === preset ? 'border-white scale-110 shadow-lg' : 'border-transparent'
+                                }`}
+                                style={{ backgroundColor: preset }}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      {ledMode === 'music' && (
+                        <div className="space-y-3">
+                          <div className="flex justify-between items-center text-sm font-bold text-zinc-300">
+                            <span>Effect Speed / Cycle Duration</span>
+                            <span className="font-mono text-xs">{ledDuration}ms</span>
+                          </div>
+                          <input 
+                            type="range"
+                            min="500"
+                            max="5000"
+                            step="100"
+                            value={ledDuration}
+                            onChange={(e) => setLedDuration(parseInt(e.target.value))}
+                            className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-pink-500"
+                          />
+                          <div className="flex justify-between text-[10px] text-zinc-500 font-bold uppercase tracking-widest">
+                            <span>Fast</span>
+                            <span>Slow</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </section>
+
                 <div className="bg-blue-600/5 border border-blue-500/20 p-6 rounded-3xl mt-8 flex gap-4 items-start">
                   <ShieldCheck className="text-blue-400 shrink-0 mt-1" size={24} />
                   <div>
@@ -2581,14 +2780,25 @@ export default function App() {
                       <Bell className="text-yellow-500" />
                       Daily Alarms
                     </h3>
-                    <button className="p-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl transition-all">
+                    <button 
+                      onClick={() => setShowAddAlarm(true)}
+                      className="p-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl transition-all"
+                    >
                       <Plus size={20} />
                     </button>
                   </div>
                   <div className="space-y-4">
                     {alarms.map(alarm => (
-                      <div key={alarm.id} className={`p-6 rounded-2xl border transition-all ${alarm.enabled ? 'bg-zinc-800/80 border-zinc-700 shadow-lg' : 'bg-zinc-900/50 border-zinc-800 opacity-60'}`}>
-                        <div className="flex justify-between items-center mb-4">
+                      <div key={alarm.id} className={`p-6 rounded-2xl border transition-all ${alarm.enabled ? 'bg-zinc-800/80 border-zinc-700 shadow-lg' : 'bg-zinc-900/50 border-zinc-800 opacity-60'} group relative`}>
+                        <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button 
+                            onClick={() => setAlarms(prev => prev.filter(a => a.id !== alarm.id))}
+                            className="p-1.5 bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded-lg transition-colors"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                        <div className="flex justify-between items-center mb-4 pr-10">
                           <span className={`text-4xl font-mono font-bold tracking-tighter ${alarm.enabled ? 'text-zinc-100' : 'text-zinc-600'}`}>{alarm.time}</span>
                           <label className="relative inline-flex items-center cursor-pointer">
                             <input 
@@ -2607,9 +2817,23 @@ export default function App() {
                         </div>
                         <div className="flex gap-1.5 flex-wrap">
                           {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => (
-                            <span key={day} className={`text-[10px] px-2 py-1 uppercase font-bold rounded-md ${alarm.days.includes(day) ? (alarm.enabled ? 'bg-yellow-500/20 text-yellow-400' : 'bg-zinc-700 text-zinc-400') : 'text-zinc-600'}`}>
+                            <button 
+                              key={day}
+                              onClick={() => {
+                                setAlarms(prev => prev.map(a => {
+                                  if (a.id === alarm.id) {
+                                    const newDays = a.days.includes(day) 
+                                      ? a.days.filter(d => d !== day) 
+                                      : [...a.days, day];
+                                    return { ...a, days: newDays };
+                                  }
+                                  return a;
+                                }));
+                              }}
+                              className={`text-[10px] px-2 py-1 uppercase font-bold rounded-md transition-colors ${alarm.days.includes(day) ? (alarm.enabled ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' : 'bg-zinc-700 text-zinc-300') : 'text-zinc-600 bg-zinc-800/50 hover:bg-zinc-700'}`}
+                            >
                               {day}
-                            </span>
+                            </button>
                           ))}
                         </div>
                       </div>
@@ -2624,7 +2848,10 @@ export default function App() {
                       <Timer className="text-cyan-400" />
                       Quick Timers
                     </h3>
-                    <button className="p-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl transition-all">
+                    <button 
+                      onClick={() => setShowAddTimer(true)}
+                      className="p-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl transition-all"
+                    >
                       <Plus size={20} />
                     </button>
                   </div>
@@ -2636,11 +2863,38 @@ export default function App() {
                             <p className="font-bold">{timer.label}</p>
                             <p className="text-xs text-zinc-500">{timer.duration / 60} minutes</p>
                           </div>
-                          <span className="text-2xl font-mono text-zinc-400">{Math.floor(timer.duration / 60).toString().padStart(2, '0')}:{(timer.duration % 60).toString().padStart(2, '0')}</span>
+                          <span className={`text-2xl font-mono ${timer.active ? 'text-cyan-400' : 'text-zinc-400'}`}>
+                            {Math.floor(timer.remaining / 60).toString().padStart(2, '0')}:{(timer.remaining % 60).toString().padStart(2, '0')}
+                          </span>
                         </div>
                         <div className="grid grid-cols-2 gap-2">
-                          <button className="py-2.5 bg-zinc-700 hover:bg-zinc-600 rounded-xl font-bold text-sm transition-colors text-white">Start</button>
-                          <button className="py-2.5 bg-zinc-900 hover:bg-zinc-800 rounded-xl font-bold text-sm transition-colors text-red-400">Delete</button>
+                          <button 
+                            onClick={() => {
+                              setTimers(prev => prev.map(t => {
+                                if (t.id === timer.id) {
+                                  // If starting from 0 (finished), reset to duration. Else just toggle.
+                                  const newRemaining = t.remaining === 0 ? t.duration : t.remaining;
+                                  return { ...t, active: !t.active, remaining: newRemaining };
+                                }
+                                return t;
+                              }));
+                            }}
+                            className={`py-2.5 rounded-xl font-bold text-sm transition-colors ${
+                              timer.active 
+                                ? 'bg-zinc-600 hover:bg-zinc-500 text-white' 
+                                : 'bg-cyan-600 hover:bg-cyan-500 text-white shadow-lg shadow-cyan-900/20'
+                            }`}
+                          >
+                            {timer.active ? 'Pause' : 'Start'}
+                          </button>
+                          <button 
+                            onClick={() => {
+                              setTimers(prev => prev.filter(t => t.id !== timer.id));
+                            }}
+                            className="py-2.5 bg-zinc-900 hover:bg-zinc-800 rounded-xl font-bold text-sm transition-colors text-red-400 border border-zinc-800"
+                          >
+                            Delete
+                          </button>
                         </div>
                       </div>
                     ))}
@@ -2761,26 +3015,52 @@ export default function App() {
                             </div>
                           </div>
 
-                          <div className="p-4 bg-zinc-800/40 rounded-2xl border border-zinc-800">
-                            <div className="flex items-center justify-between mb-3">
-                              <h5 className="text-[10px] font-bold uppercase text-zinc-500 tracking-widest">OTA Service</h5>
-                              <Settings2 size={12} className="text-blue-500" />
-                            </div>
-                            <div className="space-y-2">
-                              <div className="flex justify-between items-center">
-                                <span className="text-xs text-zinc-400">Auto-Update</span>
-                                <button 
-                                  onClick={() => setAutoOtaEnabled(!autoOtaEnabled)}
-                                  className={`w-8 h-4 rounded-full transition-colors relative ${autoOtaEnabled ? 'bg-blue-600' : 'bg-zinc-700'}`}
-                                >
-                                  <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${autoOtaEnabled ? 'right-0.5' : 'left-0.5'}`} />
-                                </button>
+                          <div className="p-4 bg-zinc-800/40 rounded-2xl border border-zinc-800 flex flex-col justify-between">
+                            <div>
+                              <div className="flex items-center justify-between mb-3">
+                                <h5 className="text-[10px] font-bold uppercase text-zinc-500 tracking-widest">OTA Service</h5>
+                                <Settings2 size={12} className="text-blue-500" />
                               </div>
-                              <div className="flex justify-between items-center">
-                                <span className="text-xs text-zinc-400">Status</span>
-                                <span className="text-[10px] font-bold bg-zinc-900 px-1.5 py-0.5 rounded text-zinc-500 uppercase">Synced</span>
+                              <div className="space-y-2 mb-4">
+                                <div className="flex justify-between items-center">
+                                  <span className="text-xs text-zinc-400">Current Version</span>
+                                  <span className="text-[10px] font-mono text-zinc-300 font-bold">v{otaVersion}</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                  <span className="text-xs text-zinc-400">Auto-Update</span>
+                                  <button 
+                                    onClick={() => setAutoOtaEnabled(!autoOtaEnabled)}
+                                    className={`w-8 h-4 rounded-full transition-colors relative ${autoOtaEnabled ? 'bg-blue-600' : 'bg-zinc-700'}`}
+                                  >
+                                    <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${autoOtaEnabled ? 'right-0.5' : 'left-0.5'}`} />
+                                  </button>
+                                </div>
                               </div>
                             </div>
+                            <button
+                              onClick={() => {
+                                setIsCheckingOTA(true);
+                                setTimeout(() => {
+                                  setIsCheckingOTA(false);
+                                  // In a real app we might update state. 
+                                  // For simulation, we'll just stop the loader.
+                                }, 2000);
+                              }}
+                              disabled={isCheckingOTA}
+                              className="w-full py-2 bg-zinc-800 hover:bg-zinc-700 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-2 text-zinc-300 disabled:opacity-50"
+                            >
+                              {isCheckingOTA ? (
+                                <>
+                                  <RefreshCw size={12} className="animate-spin" />
+                                  Checking...
+                                </>
+                              ) : (
+                                <>
+                                  <DownloadCloud size={12} />
+                                  Check for Updates
+                                </>
+                              )}
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -2802,6 +3082,51 @@ export default function App() {
                         <div className="bg-black/50 p-4 rounded-xl border border-zinc-800">
                           <p className="text-blue-400 mb-1 leading-none">AI ENGINE</p>
                           <p className="text-zinc-300">Google Gemini 3.1 Pro/Flash</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-gradient-to-br from-zinc-800 to-zinc-900 border border-zinc-700/50 rounded-[32px] p-8 shadow-xl relative overflow-hidden group">
+                      <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                        <Sliders size={120} />
+                      </div>
+                      <div className="relative z-10 w-full space-y-6">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-orange-600/20 border border-orange-500/20 flex items-center justify-center">
+                            <Sliders className="text-orange-400" size={20} />
+                          </div>
+                          <div>
+                            <p className="text-xs font-bold uppercase tracking-widest text-zinc-500 leading-none mb-1">DSP Config</p>
+                            <h4 className="text-xl font-bold">Audio Equalization</h4>
+                          </div>
+                        </div>
+
+                        <div className="space-y-5">
+                          {(['bass', 'mid', 'treble'] as const).map(band => (
+                            <div key={band} className="space-y-2">
+                              <div className="flex justify-between items-center">
+                                <label className="text-sm font-bold uppercase text-zinc-400">{band}</label>
+                                <span className={`text-xs font-mono font-bold w-6 text-right ${eqBands[band] > 0 ? 'text-emerald-400' : eqBands[band] < 0 ? 'text-red-400' : 'text-zinc-500'}`}>
+                                  {eqBands[band] > 0 ? '+' : ''}{eqBands[band]}
+                                </span>
+                              </div>
+                              <input 
+                                type="range" 
+                                min="-12" 
+                                max="12" 
+                                value={eqBands[band]} 
+                                onChange={(e) => setEqBands(prev => ({ ...prev, [band]: parseInt(e.target.value) }))}
+                                className={`w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer ${
+                                  band === 'bass' ? 'accent-orange-500' : band === 'mid' ? 'accent-blue-500' : 'accent-emerald-500'
+                                }`} 
+                              />
+                            </div>
+                          ))}
+                        </div>
+                        
+                        <div className="flex items-center justify-between pt-4 border-t border-white/5">
+                            <span className="text-[10px] uppercase font-bold text-zinc-500">Amp Output</span>
+                            <span className="text-xs bg-emerald-500/10 text-emerald-400 px-2 py-1 rounded-md border border-emerald-500/20 font-bold uppercase">Optimized</span>
                         </div>
                       </div>
                     </div>
@@ -3044,6 +3369,175 @@ export default function App() {
                 </motion.div>
               </div>
             )}
+            {/* Global Modals for Utilities */}
+            <AnimatePresence>
+              {/* Ringing Timer/Alarm Overlay */}
+              {(ringingTimerId || ringingAlarmId) && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/80 backdrop-blur-md">
+                  <motion.div
+                    initial={{ scale: 0.8, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.8, opacity: 0 }}
+                    className="bg-zinc-900 border border-zinc-700/50 p-12 rounded-[40px] text-center max-w-sm w-full shadow-2xl flex flex-col items-center"
+                  >
+                    <div className="w-24 h-24 rounded-full bg-red-500/20 flex items-center justify-center animate-pulse mb-6">
+                      {ringingAlarmId ? (
+                        <Bell className="text-red-500" size={48} />
+                      ) : (
+                        <Timer className="text-red-500" size={48} />
+                      )}
+                    </div>
+                    <h2 className="text-4xl font-black mb-2 text-white">
+                      {ringingAlarmId 
+                        ? (alarms.find(a => a.id === ringingAlarmId)?.time || '00:00')
+                        : '00:00'
+                      }
+                    </h2>
+                    <p className="text-lg text-red-400 font-bold mb-8">
+                      {ringingAlarmId 
+                        ? alarms.find(a => a.id === ringingAlarmId)?.label 
+                        : timers.find(t => t.id === ringingTimerId)?.label}
+                    </p>
+                    
+                    <button 
+                      onClick={() => {
+                        if (ringingAlarmId) setRingingAlarmId(null);
+                        if (ringingTimerId) setRingingTimerId(null);
+                      }}
+                      className="w-full py-4 bg-red-600 hover:bg-red-500 text-white font-black uppercase tracking-widest rounded-2xl transition-all shadow-lg shadow-red-900/20"
+                    >
+                      Dismiss
+                    </button>
+                  </motion.div>
+                </div>
+              )}
+
+              {/* Add Alarm Modal */}
+              {showAddAlarm && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm">
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className="bg-zinc-900 border border-zinc-800 p-8 rounded-[40px] max-w-sm w-full space-y-6 shadow-2xl"
+                  >
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-2xl font-bold flex items-center gap-2">
+                        <Bell className="text-yellow-500" />
+                        New Alarm
+                      </h3>
+                      <button onClick={() => setShowAddAlarm(false)} className="text-zinc-500 hover:text-white">
+                        <X size={20} />
+                      </button>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <label className="text-xs uppercase font-bold text-zinc-500 tracking-widest pl-1">Time</label>
+                        <input 
+                          type="time" 
+                          value={newAlarmTime}
+                          onChange={(e) => setNewAlarmTime(e.target.value)}
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-2xl px-5 py-3 text-xl font-mono focus:ring-2 focus:ring-yellow-500/50 outline-none transition-all"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs uppercase font-bold text-zinc-500 tracking-widest pl-1">Label</label>
+                        <input 
+                          type="text" 
+                          value={newAlarmLabel}
+                          onChange={(e) => setNewAlarmLabel(e.target.value)}
+                          placeholder="e.g. Wake Up"
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-2xl px-5 py-3 focus:ring-2 focus:ring-yellow-500/50 outline-none transition-all"
+                        />
+                      </div>
+                    </div>
+
+                    <button 
+                      onClick={() => {
+                        const newId = `a${Date.now()}`;
+                        setAlarms(prev => [...prev, {
+                          id: newId,
+                          time: newAlarmTime,
+                          label: newAlarmLabel,
+                          enabled: true,
+                          days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+                        }]);
+                        setShowAddAlarm(false);
+                      }}
+                      className="w-full px-6 py-4 bg-yellow-600 hover:bg-yellow-500 text-black font-black uppercase tracking-widest rounded-2xl transition-all shadow-lg shadow-yellow-900/20"
+                    >
+                      Save Alarm
+                    </button>
+                  </motion.div>
+                </div>
+              )}
+
+              {/* Add Timer Modal */}
+              {showAddTimer && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm">
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className="bg-zinc-900 border border-zinc-800 p-8 rounded-[40px] max-w-sm w-full space-y-6 shadow-2xl"
+                  >
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-2xl font-bold flex items-center gap-2">
+                        <Timer className="text-cyan-400" />
+                        New Timer
+                      </h3>
+                      <button onClick={() => setShowAddTimer(false)} className="text-zinc-500 hover:text-white">
+                        <X size={20} />
+                      </button>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <label className="text-xs uppercase font-bold text-zinc-500 tracking-widest pl-1">Minutes</label>
+                        <div className="flex items-center gap-4">
+                          <input 
+                            type="range" 
+                            min="1" max="120" 
+                            value={newTimerMinutes}
+                            onChange={(e) => setNewTimerMinutes(parseInt(e.target.value))}
+                            className="flex-1 h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                          />
+                          <span className="font-mono font-bold text-xl w-12 text-center text-cyan-400">{newTimerMinutes}</span>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs uppercase font-bold text-zinc-500 tracking-widest pl-1">Label</label>
+                        <input 
+                          type="text" 
+                          value={newTimerLabel}
+                          onChange={(e) => setNewTimerLabel(e.target.value)}
+                          placeholder="e.g. Pasta"
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-2xl px-5 py-3 focus:ring-2 focus:ring-cyan-500/50 outline-none transition-all"
+                        />
+                      </div>
+                    </div>
+
+                    <button 
+                      onClick={() => {
+                        const newId = `t${Date.now()}`;
+                        setTimers(prev => [...prev, {
+                          id: newId,
+                          label: newTimerLabel,
+                          duration: newTimerMinutes * 60,
+                          remaining: newTimerMinutes * 60,
+                          active: false
+                        }]);
+                        setShowAddTimer(false);
+                      }}
+                      className="w-full px-6 py-4 bg-cyan-600 hover:bg-cyan-500 text-white font-black uppercase tracking-widest rounded-2xl transition-all shadow-lg shadow-cyan-900/20"
+                    >
+                      Add Timer
+                    </button>
+                  </motion.div>
+                </div>
+              )}
+            </AnimatePresence>
           </AnimatePresence>
         </main>
 
