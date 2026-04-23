@@ -31,7 +31,7 @@ class MainService : Service() {
     private var nsdHelper: NsdHelper? = null
 
     private lateinit var configManager: ConfigManager
-    private lateinit var musicPlayer: MusicPlayer
+    lateinit var musicPlayer: MusicPlayer
     private lateinit var ttsManager: TtsManager
     private lateinit var sttManager: SttManager
     private var wakeWordManager: WakeWordManager? = null

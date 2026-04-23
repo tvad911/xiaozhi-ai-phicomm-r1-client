@@ -138,18 +138,17 @@ export default function App() {
   const [isTyping, setIsTyping] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [isScanningWifi, setIsScanningWifi] = useState(false);
-  const [wifiNetworks, setWifiNetworks] = useState<WifiNetwork[]>([
-    { ssid: 'Phicomm_Guest_5G', strength: 80, secure: true, connected: true },
-    { ssid: 'Home_Network', strength: 45, secure: true, connected: false },
-  ]);
+  const [systemStatus, setSystemStatus] = useState<any>({
+    ramUsage: 0,
+    uptime: '00:00',
+    storage: { total: 8, used: 0 },
+    backend: 'Connecting...',
+    model: 'Loading...'
+  });
+  const [wifiNetworks, setWifiNetworks] = useState<WifiNetwork[]>([]);
   const [connectingWifi, setConnectingWifi] = useState<string | null>(null);
   const [wifiPassword, setWifiPassword] = useState('');
-  const [btDevices, setBtDevices] = useState<BluetoothDevice[]>([
-    { id: '1', name: 'Phicomm R1 Speaker (Built-in)', connected: true, type: 'audio', pairingStatus: 'paired', audioOutput: 'standard', isPlaying: false, volume: 60, batteryLevel: 100, codec: 'AAC' },
-    { id: '2', name: 'Sony WH-1000XM4', connected: true, type: 'audio', pairingStatus: 'paired', audioOutput: 'enhanced', isPlaying: false, volume: 50, batteryLevel: 75, codec: 'LDAC' },
-    { id: '3', name: 'Marshall Major IV', connected: false, type: 'audio', pairingStatus: 'paired', audioOutput: 'standard', isPlaying: false, volume: 40, batteryLevel: 90, codec: 'aptX' },
-    { id: '4', name: 'Smart Phone X', connected: false, type: 'other', pairingStatus: 'paired', audioOutput: 'standard', isPlaying: false, volume: 50 },
-  ]);
+  const [btDevices, setBtDevices] = useState<BluetoothDevice[]>([]);
   const [profiles, setProfiles] = useState<BluetoothProfile[]>([
     { id: 'p1', name: 'Night Mode', deviceName: 'Phicomm R1 Speaker (Built-in)', audioOutput: 'mono', createdAt: new Date().toISOString(), autoConnect: true, autoReconnect: false }
   ]);
@@ -246,11 +245,7 @@ export default function App() {
   // Smart Home & IoT State
   const [smarthomeEnabled, setSmarthomeEnabled] = useState(false);
   const [mqttStatus, setMqttStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
-  const [smartDevices, setSmartDevices] = useState([
-    { id: 'dev1', name: 'Living Room Light', type: 'light', state: 'off' },
-    { id: 'dev2', name: 'Air Conditioner', type: 'climate', state: 'on', temp: 24 },
-    { id: 'dev3', name: 'Curtains', type: 'cover', state: 'open' }
-  ]);
+  const [smartDevices, setSmartDevices] = useState<any[]>([]);
 
   // Utilities / Routines State
   const [alarms, setAlarms] = useState([
@@ -298,13 +293,7 @@ export default function App() {
   const [repeatMode, setRepeatMode] = useState<'none' | 'one' | 'all'>('none');
   const [trackProgress, setTrackProgress] = useState(0);
 
-  const mockTracks: Track[] = [
-    { id: 't1', title: 'Nấu Ăn Cho Em', artist: 'Đen Vâu ft. PiaLinh', cover: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=200&h=200&fit=crop', source: 'youtube', url: '#', duration: 240 },
-    { id: 't2', title: 'Waiting For You', artist: 'MONO', cover: 'https://images.unsplash.com/photo-1493225255756-d9584f8606e9?w=200&h=200&fit=crop', source: 'soundcloud', url: '#', duration: 215 },
-    { id: 't3', title: 'Cắt Đôi Nỗi Sầu', artist: 'Tăng Duy Tân', cover: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=200&h=200&fit=crop', source: 'zing', url: '#', duration: 180 },
-    { id: 't4', title: 'Making My Way', artist: 'Sơn Tùng M-TP', cover: 'https://images.unsplash.com/photo-1459749411177-042180ce673c?w=200&h=200&fit=crop', source: 'youtube', url: '#', duration: 248 },
-    { id: 't5', title: 'See Tình', artist: 'Hoàng Thùy Linh', cover: 'https://images.unsplash.com/photo-1514525253361-bee8718a74a1?w=200&h=200&fit=crop', source: 'zing', url: '#', duration: 190 },
-  ];
+
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -449,29 +438,77 @@ export default function App() {
     }
   }, [messages]);
 
-  const startScan = () => {
+  useEffect(() => {
+    fetch('/api/wifi/networks').then(res => res.json()).then(data => {
+      if (Array.isArray(data)) setWifiNetworks(data);
+    }).catch(console.error);
+    
+    fetch('/api/bluetooth/devices').then(res => res.json()).then(data => {
+      if (Array.isArray(data)) {
+        setBtDevices(data.map((nd: any) => ({ ...nd, type: nd.type || 'audio', pairingStatus: nd.pairingStatus || 'paired' })));
+      }
+    }).catch(console.error);
+
+    const fetchStatus = () => {
+      fetch('/api/status').then(res => res.json()).then(data => {
+        if (data && !data.error) setSystemStatus(data);
+      }).catch(console.error);
+    };
+    
+    const fetchSmarthomeStatus = () => {
+      fetch('/api/smarthome/status').then(res => res.json()).then(data => {
+        if (data && data.status) {
+          setMqttStatus(data.status);
+          setSmarthomeEnabled(data.status === 'connected');
+        }
+      }).catch(console.error);
+      fetch('/api/smarthome/devices').then(res => res.json()).then(data => {
+        if (Array.isArray(data)) setSmartDevices(data);
+      }).catch(console.error);
+    };
+    
+    fetchStatus();
+    fetchSmarthomeStatus();
+    
+    const interval = setInterval(fetchStatus, 5000);
+    const intervalSmarthome = setInterval(fetchSmarthomeStatus, 5000);
+    
+    return () => {
+      clearInterval(interval);
+      clearInterval(intervalSmarthome);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (config) {
+      setActivationSensitivity(config.activationSensitivity || 70);
+      setVoiceSpeed(config.voiceSpeed || 1.0);
+      setSilenceTimeout(config.silenceTimeout || 1500);
+      setOtaVersion(config.otaVersion || '1.5.2');
+      setMacAddress(config.macAddress || '00:E0:4C:68:01:AF');
+    }
+  }, [config]);
+
+  const startScan = async () => {
     setIsScanning(true);
-    // Simulate finding a new device after 2 seconds
-    setTimeout(() => {
-      const codecs: ('SBC' | 'AAC' | 'aptX' | 'LDAC')[] = ['SBC', 'AAC', 'aptX', 'LDAC'];
-      const randomCodec = codecs[Math.floor(Math.random() * codecs.length)];
-      
-      const newDevice: BluetoothDevice = { 
-        id: Math.random().toString(36).substr(2, 9), 
-        name: `Audio Adapter ${Math.floor(Math.random() * 100)}`, 
-        connected: false, 
-        type: 'audio',
-        rssi: -Math.floor(50 + Math.random() * 40),
-        pairingStatus: 'none',
-        codec: randomCodec,
-        batteryLevel: Math.floor(20 + Math.random() * 80)
-      };
-      setBtDevices(prev => {
-        if (prev.some(d => d.name === newDevice.name)) return prev;
-        return [...prev, newDevice];
-      });
+    try {
+      await fetch('/api/bluetooth/scan', { method: 'POST' });
+      setTimeout(async () => {
+        try {
+          const response = await fetch('/api/bluetooth/devices');
+          const data = await response.json();
+          if (Array.isArray(data)) {
+            setBtDevices(data.map((nd: any) => ({ ...nd, type: nd.type || 'audio', pairingStatus: nd.pairingStatus || 'paired' })));
+          }
+        } catch (e) {
+          console.error(e);
+        }
+        setIsScanning(false);
+      }, 3000);
+    } catch (e) {
+      console.error(e);
       setIsScanning(false);
-    }, 2500);
+    }
   };
 
   const pairDevice = (id: string) => {
@@ -642,60 +679,94 @@ export default function App() {
     }));
   };
 
-  const startWifiScan = () => {
+  const startWifiScan = async () => {
     setIsScanningWifi(true);
-    setTimeout(() => {
-      const discovered: WifiNetwork[] = [
-        { ssid: 'Phicomm_Guest_5G', strength: 80, secure: true, connected: true },
-        { ssid: 'Home_Network', strength: 45, secure: true, connected: false },
-        { ssid: 'Cafe_Free_WiFi', strength: 30, secure: false, connected: false },
-        { ssid: 'Hidden_SSD', strength: 20, secure: true, connected: false },
-      ];
-      setWifiNetworks(discovered);
+    try {
+      await fetch('/api/wifi/scan', { method: 'POST' });
+      setTimeout(async () => {
+        try {
+          const response = await fetch('/api/wifi/networks');
+          const data = await response.json();
+          if (Array.isArray(data)) {
+            setWifiNetworks(data);
+          }
+        } catch (e) {
+          console.error(e);
+        }
+        setIsScanningWifi(false);
+      }, 3000);
+    } catch (e) {
+      console.error(e);
       setIsScanningWifi(false);
-    }, 2000);
+    }
   };
 
-  const connectToWifi = (ssid: string) => {
-    // Simulated connection logic
+  const connectToWifi = async (ssid: string) => {
     setIsScanningWifi(true);
-    setTimeout(() => {
-      setWifiNetworks(prev => prev.map(n => ({
-        ...n,
-        connected: n.ssid === ssid
-      })));
-      setConnectingWifi(null);
-      setWifiPassword('');
-      setIsScanningWifi(false);
-    }, 3000);
+    try {
+      const response = await fetch('/api/wifi/connect', {
+        method: 'POST',
+        body: JSON.stringify({ postData: JSON.stringify({ ssid, password: wifiPassword }) }),
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await response.json();
+      if (data.success) {
+        setWifiNetworks(prev => prev.map(n => ({
+          ...n,
+          connected: n.ssid === ssid
+        })));
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    setConnectingWifi(null);
+    setWifiPassword('');
+    setIsScanningWifi(false);
   };
 
-  const performMediaSearch = (e: React.FormEvent) => {
+  const performMediaSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchQuery.trim()) return;
     setIsSearchingMedia(true);
     
-    // Simulated search results depending on active source
-    setTimeout(() => {
-      const results: Track[] = mockTracks.map(t => ({
-        ...t,
-        source: mediaSource,
-        title: `${searchQuery} - ${t.title}`,
-        id: Math.random().toString(36).substr(2, 9)
-      }));
-      setSearchResults(results);
-      setIsSearchingMedia(false);
-    }, 1200);
+    try {
+      const response = await fetch('/api/media/search', {
+        method: 'POST',
+        body: JSON.stringify({ postData: JSON.stringify({ query: searchQuery }) }),
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await response.json();
+      if (Array.isArray(data)) {
+        setSearchResults(data.map((t: any) => ({
+          ...t,
+          source: mediaSource,
+          artist: t.uploader,
+          cover: t.thumbnailUrl
+        })));
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    setIsSearchingMedia(false);
   };
 
-  const playMediaTrack = (track: Track) => {
+  const playMediaTrack = async (track: Track) => {
     setCurrentTrack(track);
     setIsMediaPlaying(true);
-    // Sync with Bluetooth groups - if a group is found, set it to playing
+    
+    try {
+      await fetch('/api/media/play', {
+        method: 'POST',
+        body: JSON.stringify({ postData: JSON.stringify({ track }) }),
+        headers: { 'Content-Type': 'application/json' }
+      });
+    } catch (e) {
+      console.error(e);
+    }
+
     if (btGroups.length > 0) {
       toggleGroupPlayback(btGroups[0].id);
     } else {
-      // Sync with first connected audio device
       const audioDev = btDevices.find(d => d.connected && d.type === 'audio');
       if (audioDev) {
         setBtDevices(prev => prev.map(d => d.id === audioDev.id ? { ...d, isPlaying: true } : d));
@@ -703,8 +774,17 @@ export default function App() {
     }
   };
 
-  const addToQueue = (track: Track) => {
-    setMediaQueue(prev => [...prev, { ...track, id: Math.random().toString(36).substr(2, 9) }]);
+  const addToQueue = async (track: Track) => {
+    try {
+      await fetch('/api/media/enqueue', {
+        method: 'POST',
+        body: JSON.stringify({ postData: JSON.stringify({ track }) }),
+        headers: { 'Content-Type': 'application/json' }
+      });
+      setMediaQueue(prev => [...prev, track]);
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const removeFromQueue = (index: number) => {
@@ -723,11 +803,40 @@ export default function App() {
     });
   };
 
-  const playNext = () => {
-    if (mediaQueue.length === 0) return;
-    const nextTrack = mediaQueue[0];
-    playMediaTrack(nextTrack);
-    setMediaQueue(prev => prev.slice(1));
+  const playNext = async () => {
+    if (mediaQueue.length === 0) {
+      try {
+        await fetch('/api/media/next', { method: 'POST' });
+      } catch (e) {
+        console.error(e);
+      }
+      return;
+    }
+    try {
+      await fetch('/api/media/next', { method: 'POST' });
+      const nextTrack = mediaQueue[0];
+      setCurrentTrack(nextTrack);
+      setMediaQueue(prev => prev.slice(1));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const playPrev = async () => {
+    try {
+      await fetch('/api/media/previous', { method: 'POST' });
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const togglePlayPause = async () => {
+    setIsMediaPlaying(!isMediaPlaying);
+    try {
+      await fetch('/api/media/pause', { method: 'POST' });
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const checkOTAUpdate = () => {
@@ -884,9 +993,9 @@ export default function App() {
                 className="grid grid-cols-1 md:grid-cols-3 gap-6"
               >
                 {/* Stats Cards */}
-                <StatusCard label="Backend Status" value="Online" sub="v1.0.4 - Cloud Run" icon={Activity} color="text-emerald-400" />
-                <StatusCard label="Active Model" value="Gemini 3 Flash" sub="Latency: ~450ms" icon={Cpu} color="text-orange-400" />
-                <StatusCard label="Speaker Logic" value="Ready" sub="STT/TTS Connected" icon={Signal} color="text-blue-400" />
+                <StatusCard label="Backend Status" value={systemStatus.backend} sub={`Uptime: ${systemStatus.uptime}`} icon={Activity} color="text-emerald-400" />
+                <StatusCard label="Active Persona" value={systemStatus.model || 'Default'} sub={`RAM Usage: ${systemStatus.ramUsage}%`} icon={Cpu} color="text-orange-400" />
+                <StatusCard label="Internal Storage" value={`${systemStatus.storage?.used}GB / ${systemStatus.storage?.total}GB`} sub="ROM" icon={HardDrive} color="text-blue-400" />
 
                 {/* Main Dashboard Panel */}
                 <div className="md:col-span-2 space-y-6">
@@ -1254,7 +1363,7 @@ export default function App() {
                       </h4>
                       
                       <div className="grid grid-cols-1 gap-3">
-                        {(searchResults.length > 0 ? searchResults : mockTracks).map((track) => (
+                        {searchResults.map((track) => (
                           <div 
                             key={track.id} 
                             className="bg-zinc-900/40 border border-zinc-800 p-3 rounded-2xl flex items-center justify-between hover:border-zinc-700 transition-all group"
@@ -1371,16 +1480,16 @@ export default function App() {
 
                       {/* Main Controls */}
                       <div className="flex items-center justify-center gap-6 mb-8">
-                        <button className="text-zinc-500 hover:text-white transition-colors"><SkipBack size={24} /></button>
+                        <button onClick={playPrev} className="text-zinc-500 hover:text-white transition-colors"><SkipBack size={24} /></button>
                         <button 
-                          onClick={() => setIsMediaPlaying(!isMediaPlaying)}
+                          onClick={togglePlayPause}
                           className={`w-16 h-16 rounded-full flex items-center justify-center transition-all ${
                             isMediaPlaying ? 'bg-red-600 text-white shadow-[0_0_30px_rgba(220,38,38,0.3)]' : 'bg-white text-black hover:scale-105'
                           }`}
                         >
                           {isMediaPlaying ? <Pause size={28} fill="currentColor" /> : <Play size={28} fill="currentColor" className="ml-1" />}
                         </button>
-                        <button className="text-zinc-500 hover:text-white transition-colors"><SkipForward size={24} /></button>
+                        <button onClick={playNext} className="text-zinc-500 hover:text-white transition-colors"><SkipForward size={24} /></button>
                       </div>
 
                       {/* Volume */}
@@ -2783,13 +2892,19 @@ export default function App() {
                               type="checkbox" 
                               checked={device.state === 'on' || device.state === 'open'} 
                               onChange={() => {
-                                setSmartDevices(prev => prev.map(d => {
-                                  if (d.id === device.id) {
-                                    const newState = d.type === 'cover' ? (d.state === 'open' ? 'closed' : 'open') : (d.state === 'on' ? 'off' : 'on');
-                                    return { ...d, state: newState };
-                                  }
-                                  return d;
-                                }));
+                                fetch('/api/smarthome/toggle', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ postData: JSON.stringify({ deviceId: device.id }) })
+                                }).then(() => {
+                                  setSmartDevices(prev => prev.map(d => {
+                                    if (d.id === device.id) {
+                                      const newState = d.type === 'cover' ? (d.state === 'open' ? 'closed' : 'open') : (d.state === 'on' ? 'off' : 'on');
+                                      return { ...d, state: newState };
+                                    }
+                                    return d;
+                                  }));
+                                }).catch(console.error);
                               }}
                               className="sr-only peer" 
                             />
@@ -3002,6 +3117,8 @@ export default function App() {
                           <input 
                             type="range" min="0" max="100" value={activationSensitivity} 
                             onChange={(e) => setActivationSensitivity(parseInt(e.target.value))}
+                            onMouseUp={(e) => updateConfig({ activationSensitivity: parseInt((e.target as HTMLInputElement).value) })}
+                            onTouchEnd={(e) => updateConfig({ activationSensitivity: parseInt((e.target as HTMLInputElement).value) })}
                             className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-orange-500" 
                           />
                         </div>
@@ -3017,6 +3134,8 @@ export default function App() {
                           <input 
                             type="range" min="0.5" max="2.0" step="0.1" value={voiceSpeed} 
                             onChange={(e) => setVoiceSpeed(parseFloat(e.target.value))}
+                            onMouseUp={(e) => updateConfig({ voiceSpeed: parseFloat((e.target as HTMLInputElement).value) })}
+                            onTouchEnd={(e) => updateConfig({ voiceSpeed: parseFloat((e.target as HTMLInputElement).value) })}
                             className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-500" 
                           />
                         </div>
@@ -3027,8 +3146,16 @@ export default function App() {
                             <div className="flex items-center justify-between">
                               <span className="font-bold text-sm">{silenceTimeout}ms</span>
                               <div className="flex flex-col">
-                                <button onClick={() => setSilenceTimeout(s => s + 100)} className="hover:text-white text-zinc-600"><ChevronUp size={12} /></button>
-                                <button onClick={() => setSilenceTimeout(s => Math.max(500, s - 100))} className="hover:text-white text-zinc-600"><ChevronDown size={12} /></button>
+                                <button onClick={() => {
+                                  const newVal = silenceTimeout + 100;
+                                  setSilenceTimeout(newVal);
+                                  updateConfig({ silenceTimeout: newVal });
+                                }} className="hover:text-white text-zinc-600"><ChevronUp size={12} /></button>
+                                <button onClick={() => {
+                                  const newVal = Math.max(500, silenceTimeout - 100);
+                                  setSilenceTimeout(newVal);
+                                  updateConfig({ silenceTimeout: newVal });
+                                }} className="hover:text-white text-zinc-600"><ChevronDown size={12} /></button>
                               </div>
                             </div>
                           </div>

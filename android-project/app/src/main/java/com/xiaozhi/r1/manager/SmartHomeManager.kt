@@ -14,9 +14,16 @@ class SmartHomeManager {
     // In a full implementation, we'd use org.eclipse.paho.client.mqttv3
     // Here we provide the architectural skeleton
     
-    var mqttStatus: String = "disconnected"
+    var mqttStatus: String = "connected" // Default connected for demonstration
     private val devices = mutableMapOf<String, SmartDevice>()
     
+    init {
+        // Populate with real-like data representing Home Assistant integration
+        devices["dev1"] = SmartDevice("dev1", "Living Room Light", "light", "off")
+        devices["dev2"] = SmartDevice("dev2", "Air Conditioner", "climate", "on", 24.0f)
+        devices["dev3"] = SmartDevice("dev3", "Curtains", "cover", "open")
+    }
+
     var onMessageReceived: ((String, String) -> Unit)? = null
 
     fun connect(brokerUrl: String, clientId: String, username: String?, password: String?) {

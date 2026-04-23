@@ -6,15 +6,30 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import com.google.gson.Gson
 import com.google.gson.JsonObject
+import java.util.concurrent.TimeUnit
 
 class GeminiProxy {
-    private val client = OkHttpClient()
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .build()
     private val gson = Gson()
+
+    // Context memory queue
+    private val history = mutableListOf<JsonObject>()
+    private val MAX_HISTORY = 10 // Maintains last 5 turns (user + model)
 
     fun generateContent(apiKey: String, prompt: String, systemInstruction: String): String {
         val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$apiKey"
 
-        // Build the request JSON structure expected by Gemini API
+        val userContent = JsonObject().apply {
+            addProperty("role", "user")
+            val partsArray = com.google.gson.JsonArray()
+            partsArray.add(JsonObject().apply { addProperty("text", prompt) })
+            add("parts", partsArray)
+        }
+
         val requestJson = JsonObject().apply {
             val systemInstructionObj = JsonObject().apply {
                 val partsArray = com.google.gson.JsonArray()
@@ -24,12 +39,12 @@ class GeminiProxy {
             add("systemInstruction", systemInstructionObj)
 
             val contentsArray = com.google.gson.JsonArray()
-            val userContent = JsonObject().apply {
-                addProperty("role", "user")
-                val partsArray = com.google.gson.JsonArray()
-                partsArray.add(JsonObject().apply { addProperty("text", prompt) })
-                add("parts", partsArray)
+            
+            // Inject context history
+            for (msg in history) {
+                contentsArray.add(msg)
             }
+            
             contentsArray.add(userContent)
             add("contents", contentsArray)
         }
@@ -43,8 +58,19 @@ class GeminiProxy {
         try {
             val response = client.newCall(request).execute()
             if (!response.isSuccessful) {
+                val errorBody = response.body?.string()
+                if (errorBody != null) {
+                    try {
+                        val errorObj = gson.fromJson(errorBody, JsonObject::class.java).getAsJsonObject("error")
+                        val message = errorObj.get("message").asString
+                        return "Error: $message"
+                    } catch (e: Exception) {
+                        return "Error: HTTP ${response.code} - $errorBody"
+                    }
+                }
                 return "Error: HTTP ${response.code}"
             }
+            
             val responseBody = response.body?.string() ?: return "Error: Empty response"
             
             // Parse response
@@ -54,7 +80,24 @@ class GeminiProxy {
                 val content = candidates.get(0).asJsonObject.getAsJsonObject("content")
                 val parts = content.getAsJsonArray("parts")
                 if (parts != null && parts.size() > 0) {
-                    return parts.get(0).asJsonObject.get("text").asString
+                    val replyText = parts.get(0).asJsonObject.get("text").asString
+                    
+                    // Update memory queue
+                    history.add(userContent)
+                    val modelContent = JsonObject().apply {
+                        addProperty("role", "model")
+                        val modelParts = com.google.gson.JsonArray()
+                        modelParts.add(JsonObject().apply { addProperty("text", replyText) })
+                        add("parts", modelParts)
+                    }
+                    history.add(modelContent)
+                    
+                    // Sliding window
+                    while (history.size > MAX_HISTORY) {
+                        history.removeAt(0)
+                    }
+                    
+                    return replyText
                 }
             }
             return "No text received"
@@ -62,5 +105,9 @@ class GeminiProxy {
             e.printStackTrace()
             return "Error: ${e.message}"
         }
+    }
+    
+    fun clearMemory() {
+        history.clear()
     }
 }
