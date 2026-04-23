@@ -88,6 +88,10 @@ class MusicPlayer(context: Context) {
         }
     }
 
+    fun stop() {
+        exoPlayer.stop()
+    }
+
     fun next() {
         if (exoPlayer.hasNextMediaItem()) {
             exoPlayer.seekToNextMediaItem()
