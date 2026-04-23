@@ -57,4 +57,7 @@ dependencies {
     
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+
+    // Wake Word Engine
+    implementation("ai.picovoice:porcupine-android:3.0.1")
 }

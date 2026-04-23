@@ -11,6 +11,13 @@ import android.os.IBinder
 
 import com.xiaozhi.r1.server.WebServer
 import com.xiaozhi.r1.util.NsdHelper
+import com.xiaozhi.r1.audio.SttManager
+import com.xiaozhi.r1.audio.TtsManager
+import com.xiaozhi.r1.audio.WakeWordManager
+import com.xiaozhi.r1.manager.ConfigManager
+import com.xiaozhi.r1.media.MusicPlayer
+import com.xiaozhi.r1.protocol.WebSocketProtocol
+import com.xiaozhi.r1.server.GeminiProxy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -22,6 +29,18 @@ class MainService : Service() {
     
     private var webServer: WebServer? = null
     private var nsdHelper: NsdHelper? = null
+
+    private lateinit var configManager: ConfigManager
+    private lateinit var musicPlayer: MusicPlayer
+    private lateinit var ttsManager: TtsManager
+    private lateinit var sttManager: SttManager
+    private var wakeWordManager: WakeWordManager? = null
+    private var webSocketProtocol: WebSocketProtocol? = null
+    private val geminiProxy = GeminiProxy()
+    
+    companion object {
+        var instance: MainService? = null
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -35,9 +54,60 @@ class MainService : Service() {
         nsdHelper = NsdHelper(this)
         nsdHelper?.registerService("xiaozhi-r1", 8081)
         
-        // Initialize other managers...
-        serviceScope.launch {
-            // Background init tasks
+        instance = this
+        configManager = ConfigManager(this)
+        musicPlayer = MusicPlayer(this)
+        ttsManager = TtsManager(this, musicPlayer)
+        
+        sttManager = SttManager(this) { text ->
+            if (text.isNotEmpty()) {
+                val config = configManager.currentConfig
+                val activePersona = config.personas.find { it.id == config.activePersonaId }
+                val systemPrompt = activePersona?.prompt ?: "Bạn là trợ lý ảo."
+                val apiKey = config.llmApiKey
+                
+                if (apiKey.isNotEmpty()) {
+                    serviceScope.launch {
+                        val reply = geminiProxy.generateContent(apiKey, text, systemPrompt)
+                        ttsManager.speak(reply)
+                        
+                        // Restart Wakeword after speaking (simplified for now)
+                        wakeWordManager?.start()
+                    }
+                } else {
+                    ttsManager.speak("Vui lòng cấu hình API Key trong phần cài đặt.")
+                    wakeWordManager?.start()
+                }
+            } else {
+                wakeWordManager?.start()
+            }
+        }
+
+        applyMode()
+    }
+
+    fun applyMode() {
+        val config = configManager.currentConfig
+        if (config.useStandaloneMode) {
+            webSocketProtocol?.disconnect()
+            webSocketProtocol = null
+            
+            wakeWordManager?.stop()
+            wakeWordManager = WakeWordManager(this, config.picovoiceAccessKey, config.wakeWord) {
+                // On wake word detected
+                wakeWordManager?.stop()
+                musicPlayer.stop() // Optional 'ting' sound
+                sttManager.startListening()
+            }
+            wakeWordManager?.start()
+        } else {
+            wakeWordManager?.stop()
+            wakeWordManager = null
+            
+            if (webSocketProtocol == null) {
+                webSocketProtocol = WebSocketProtocol(config.serverUrl)
+                webSocketProtocol?.connect()
+            }
         }
     }
 
@@ -51,8 +121,14 @@ class MainService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        instance = null
         webServer?.stop()
         nsdHelper?.unregisterService()
+        wakeWordManager?.stop()
+        webSocketProtocol?.disconnect()
+        ttsManager.release()
+        sttManager.release()
+        musicPlayer.release()
         serviceJob.cancel()
     }
 

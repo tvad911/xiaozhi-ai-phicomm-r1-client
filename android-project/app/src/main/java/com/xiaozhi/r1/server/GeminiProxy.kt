@@ -10,10 +10,9 @@ import com.google.gson.JsonObject
 class GeminiProxy {
     private val client = OkHttpClient()
     private val gson = Gson()
-    private val GEMINI_API_KEY = "YOUR_GEMINI_API_KEY_HERE" // Ideally fetched from ConfigManager/SharedPreferences
 
-    fun generateContent(prompt: String, systemInstruction: String): String {
-        val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$GEMINI_API_KEY"
+    fun generateContent(apiKey: String, prompt: String, systemInstruction: String): String {
+        val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$apiKey"
 
         // Build the request JSON structure expected by Gemini API
         val requestJson = JsonObject().apply {

@@ -1,9 +1,23 @@
 import { useState, useEffect } from 'react';
 import { fetchApi } from '../lib/api';
 
+export interface Persona {
+  id: string;
+  name: string;
+  prompt: string;
+}
+
 export interface AppConfig {
+  useStandaloneMode: boolean;
   serverUrl: string;
-  systemPrompt: string;
+  picovoiceAccessKey: string;
+  wakeWord: string;
+  llmProvider: string;
+  llmApiKey: string;
+  ttsProvider: string;
+  ttsApiKey: string;
+  activePersonaId: string;
+  personas: Persona[];
   voiceSpeed: number;
   activationSensitivity: number;
   silenceTimeout: number;

@@ -4,6 +4,7 @@ import android.content.Context
 import fi.iki.elonen.NanoHTTPD
 import com.google.gson.Gson
 
+import com.xiaozhi.r1.MainService
 import com.xiaozhi.r1.manager.ConfigManager
 
 class ApiHandler(private val context: Context) {
@@ -50,7 +51,9 @@ class ApiHandler(private val context: Context) {
         val body = getBodyParams(session)
         configManager.updateConfig(body)
         
-        // TODO: Need to broadcast change to reconnect WebSocketProtocol if serverUrl changed
+        // Broadcast change to reconnect WebSocketProtocol or Standalone mode if config changed
+        MainService.instance?.applyMode()
+        
         return createJsonResponse(NanoHTTPD.Response.Status.OK, configManager.currentConfig)
     }
 
@@ -58,10 +61,16 @@ class ApiHandler(private val context: Context) {
         val body = getBodyParams(session)
         val message = body["message"] as? String ?: return createJsonResponse(NanoHTTPD.Response.Status.BAD_REQUEST, mapOf("error" to "Missing message"))
         
-        // Typical system prompt, can be loaded from ConfigManager
-        val systemPrompt = "Bạn là một trợ lý ảo thông minh cho loa Phicomm R1. Hãy trả lời ngắn gọn, thân thiện."
+        // Get active persona
+        val activePersona = configManager.currentConfig.personas.find { it.id == configManager.currentConfig.activePersonaId }
+        val systemPrompt = activePersona?.prompt ?: "Bạn là một trợ lý ảo thông minh cho loa Phicomm R1."
         
-        val reply = geminiProxy.generateContent(message, systemPrompt)
+        val apiKey = configManager.currentConfig.llmApiKey
+        if (apiKey.isEmpty()) {
+            return createJsonResponse(NanoHTTPD.Response.Status.BAD_REQUEST, mapOf("error" to "LLM API Key is missing. Please configure it in Settings."))
+        }
+        
+        val reply = geminiProxy.generateContent(apiKey, message, systemPrompt)
         
         return createJsonResponse(NanoHTTPD.Response.Status.OK, mapOf("response" to reply))
     }

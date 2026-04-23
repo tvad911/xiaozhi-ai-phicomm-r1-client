@@ -3069,33 +3069,87 @@ export default function App() {
                   </div>
 
                   <div className="space-y-8">
-                    {/* Connection Details */}
+                    {/* Standalone AI Routing */}
                     <div className="bg-zinc-900/80 border border-zinc-800 rounded-3xl p-8 h-fit">
-                      <h4 className="text-lg font-bold mb-4 uppercase tracking-widest text-zinc-500 flex items-center gap-2">
-                        <Terminal size={18} />
-                        Connection Details
-                      </h4>
-                      <div className="font-mono text-sm space-y-4">
-                        <div className="bg-black/50 p-4 rounded-xl border border-zinc-800">
-                          <p className="text-orange-400 mb-2 leading-none font-bold">XIAOZHI BACKEND SERVER URL</p>
-                          <input 
-                            type="text" 
-                            className="w-full bg-zinc-900 border border-zinc-700 text-zinc-300 rounded p-2 text-xs"
-                            value={config?.serverUrl || 'wss://api.xiaozhi.me'}
-                            onChange={(e) => updateConfig({ serverUrl: e.target.value })}
-                            placeholder="wss://api.xiaozhi.me"
-                          />
-                          <p className="text-zinc-500 text-[10px] mt-2">Mặc định là wss://api.xiaozhi.me. Bạn có thể trỏ về máy chủ Xiaozhi nội bộ của bạn (ví dụ: ws://192.168.1.100:8080)</p>
-                        </div>
-                        <div className="bg-black/50 p-4 rounded-xl border border-zinc-800">
-                          <p className="text-orange-400 mb-1 leading-none">HTTP API ENDPOINT</p>
-                          <p className="text-zinc-300 break-all">{window.location.origin}/api/config</p>
-                        </div>
-                        <div className="bg-black/50 p-4 rounded-xl border border-zinc-800">
-                          <p className="text-blue-400 mb-1 leading-none">AI ENGINE</p>
-                          <p className="text-zinc-300">Google Gemini / Custom Backend</p>
-                        </div>
+                      <div className="flex items-center justify-between mb-6">
+                        <h4 className="text-lg font-bold uppercase tracking-widest text-zinc-500 flex items-center gap-2">
+                          <Wand2 size={18} />
+                          Standalone AI Mode
+                        </h4>
+                        <button 
+                          onClick={() => updateConfig({ useStandaloneMode: !config?.useStandaloneMode })}
+                          className={`w-12 h-6 rounded-full transition-colors relative ${config?.useStandaloneMode ? 'bg-emerald-600' : 'bg-zinc-700'}`}
+                        >
+                          <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${config?.useStandaloneMode ? 'right-1' : 'left-1'}`} />
+                        </button>
                       </div>
+
+                      {config?.useStandaloneMode ? (
+                        <div className="font-mono text-sm space-y-4">
+                          <div className="bg-black/50 p-4 rounded-xl border border-zinc-800">
+                            <p className="text-emerald-400 mb-2 leading-none font-bold">PICOVOICE PORCUPINE (WAKEWORD)</p>
+                            <input 
+                              type="password" 
+                              className="w-full bg-zinc-900 border border-zinc-700 text-zinc-300 rounded p-2 text-xs mb-2"
+                              value={config?.picovoiceAccessKey || ''}
+                              onChange={(e) => updateConfig({ picovoiceAccessKey: e.target.value })}
+                              placeholder="Nhập Access Key..."
+                            />
+                            <select 
+                              className="w-full bg-zinc-900 border border-zinc-700 text-zinc-300 rounded p-2 text-xs"
+                              value={config?.wakeWord || 'hey google'}
+                              onChange={(e) => updateConfig({ wakeWord: e.target.value })}
+                            >
+                              <option value="hey google">Hey Google</option>
+                              <option value="alexa">Alexa</option>
+                              <option value="jarvis">Jarvis</option>
+                              <option value="porcupine">Porcupine</option>
+                              <option value="terminator">Terminator</option>
+                            </select>
+                          </div>
+                          
+                          <div className="bg-black/50 p-4 rounded-xl border border-zinc-800">
+                            <p className="text-orange-400 mb-2 leading-none font-bold">GOOGLE GEMINI API (LLM)</p>
+                            <input 
+                              type="password" 
+                              className="w-full bg-zinc-900 border border-zinc-700 text-zinc-300 rounded p-2 text-xs"
+                              value={config?.llmApiKey || ''}
+                              onChange={(e) => updateConfig({ llmApiKey: e.target.value })}
+                              placeholder="Nhập Google API Key..."
+                            />
+                          </div>
+
+                          <div className="bg-black/50 p-4 rounded-xl border border-zinc-800">
+                            <p className="text-blue-400 mb-2 leading-none font-bold">ACTIVE PERSONA (SYSTEM PROMPT)</p>
+                            <select 
+                              className="w-full bg-zinc-900 border border-zinc-700 text-zinc-300 rounded p-2 text-xs mb-2"
+                              value={config?.activePersonaId || 'default'}
+                              onChange={(e) => updateConfig({ activePersonaId: e.target.value })}
+                            >
+                              {config?.personas?.map(p => (
+                                <option key={p.id} value={p.id}>{p.name}</option>
+                              ))}
+                            </select>
+                            <p className="text-zinc-500 text-[10px]">
+                              {config?.personas?.find(p => p.id === config.activePersonaId)?.prompt || "Bạn là một trợ lý ảo thông minh..."}
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="font-mono text-sm space-y-4">
+                          <div className="bg-black/50 p-4 rounded-xl border border-zinc-800 opacity-80">
+                            <p className="text-orange-400 mb-2 leading-none font-bold">XIAOZHI BACKEND SERVER URL</p>
+                            <input 
+                              type="text" 
+                              className="w-full bg-zinc-900 border border-zinc-700 text-zinc-300 rounded p-2 text-xs"
+                              value={config?.serverUrl || 'wss://api.xiaozhi.me'}
+                              onChange={(e) => updateConfig({ serverUrl: e.target.value })}
+                              placeholder="wss://api.xiaozhi.me"
+                            />
+                            <p className="text-zinc-500 text-[10px] mt-2">Loa sẽ đóng vai trò dummy microphone & speaker, giao tiếp hoàn toàn qua WebSocket với máy chủ.</p>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     <div className="bg-gradient-to-br from-zinc-800 to-zinc-900 border border-zinc-700/50 rounded-[32px] p-8 shadow-xl relative overflow-hidden group">
