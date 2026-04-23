@@ -48,7 +48,11 @@ class MainService : Service() {
         
         // Init Web Server
         webServer = WebServer(this, 8081)
-        webServer?.start()
+        try {
+            webServer?.start()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
 
         // Init mDNS
         nsdHelper = NsdHelper(this)

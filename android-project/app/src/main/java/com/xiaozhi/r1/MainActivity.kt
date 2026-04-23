@@ -6,6 +6,9 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.app.Activity
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 
 class MainActivity : Activity() {
     private lateinit var webView: WebView
@@ -13,10 +16,6 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // Start foreground service
-        val serviceIntent = Intent(this, MainService::class.java)
-        startService(serviceIntent) // On API >= 26 use startForegroundService
-
         webView = WebView(this)
         setContentView(webView)
 
@@ -28,6 +27,39 @@ class MainActivity : Activity() {
             override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
                 return false
             }
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
+            if (Build.VERSION.SDK_INT >= 33) {
+                permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+            val missing = permissions.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+            if (missing.isNotEmpty()) {
+                requestPermissions(missing.toTypedArray(), 100)
+                return
+            }
+        }
+
+        startAppServices()
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        if (requestCode == 100) {
+            startAppServices()
+        }
+    }
+
+    private fun startAppServices() {
+        try {
+            val serviceIntent = Intent(this, MainService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent)
+            } else {
+                startService(serviceIntent)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
 
         // Connect to local NanoHTTPD server
