@@ -4,9 +4,12 @@ import android.content.Context
 import fi.iki.elonen.NanoHTTPD
 import com.google.gson.Gson
 
+import com.xiaozhi.r1.manager.ConfigManager
+
 class ApiHandler(private val context: Context) {
     private val gson = Gson()
     private val geminiProxy = GeminiProxy()
+    private val configManager = ConfigManager(context)
 
     fun handleRequest(session: NanoHTTPD.IHTTPSession): NanoHTTPD.Response {
         val uri = session.uri
@@ -15,6 +18,8 @@ class ApiHandler(private val context: Context) {
         return try {
             when {
                 uri == "/api/status" && method == NanoHTTPD.Method.GET -> handleStatus()
+                uri == "/api/config" && method == NanoHTTPD.Method.GET -> handleGetConfig()
+                uri == "/api/config" && method == NanoHTTPD.Method.POST -> handleUpdateConfig(session)
                 uri == "/api/chat" && method == NanoHTTPD.Method.POST -> handleChat(session)
                 uri.startsWith("/api/bluetooth/") -> handleBluetooth(session)
                 uri.startsWith("/api/wifi/") -> handleWifi(session)
@@ -35,6 +40,18 @@ class ApiHandler(private val context: Context) {
             "storage" to mapOf("total" to 8, "used" to 2)
         )
         return createJsonResponse(NanoHTTPD.Response.Status.OK, status)
+    }
+
+    private fun handleGetConfig(): NanoHTTPD.Response {
+        return createJsonResponse(NanoHTTPD.Response.Status.OK, configManager.currentConfig)
+    }
+
+    private fun handleUpdateConfig(session: NanoHTTPD.IHTTPSession): NanoHTTPD.Response {
+        val body = getBodyParams(session)
+        configManager.updateConfig(body)
+        
+        // TODO: Need to broadcast change to reconnect WebSocketProtocol if serverUrl changed
+        return createJsonResponse(NanoHTTPD.Response.Status.OK, configManager.currentConfig)
     }
 
     private fun handleChat(session: NanoHTTPD.IHTTPSession): NanoHTTPD.Response {

@@ -76,8 +76,7 @@ import {
   Timer,
   DownloadCloud
 } from 'lucide-react';
-
-
+import { useConfig } from './hooks/useConfig';
 
 interface BluetoothDevice {
   id: string;
@@ -193,6 +192,8 @@ export default function App() {
   };
   const [voiceSpeed, setVoiceSpeed] = useState(1.0);
   const [uiTheme, setUiTheme] = useState<'system' | 'matrix' | 'classic'>('matrix');
+  // AI & Mic settings
+  const { config, updateConfig } = useConfig();
   const [activationSensitivity, setActivationSensitivity] = useState(70);
   const [silenceTimeout, setSilenceTimeout] = useState(1500);
   const [otaVersion, setOtaVersion] = useState('1.5.2');
@@ -3076,12 +3077,23 @@ export default function App() {
                       </h4>
                       <div className="font-mono text-sm space-y-4">
                         <div className="bg-black/50 p-4 rounded-xl border border-zinc-800">
-                          <p className="text-orange-400 mb-1 leading-none">HTTP ENDPOINT</p>
+                          <p className="text-orange-400 mb-2 leading-none font-bold">XIAOZHI BACKEND SERVER URL</p>
+                          <input 
+                            type="text" 
+                            className="w-full bg-zinc-900 border border-zinc-700 text-zinc-300 rounded p-2 text-xs"
+                            value={config?.serverUrl || 'wss://api.xiaozhi.me'}
+                            onChange={(e) => updateConfig({ serverUrl: e.target.value })}
+                            placeholder="wss://api.xiaozhi.me"
+                          />
+                          <p className="text-zinc-500 text-[10px] mt-2">Mặc định là wss://api.xiaozhi.me. Bạn có thể trỏ về máy chủ Xiaozhi nội bộ của bạn (ví dụ: ws://192.168.1.100:8080)</p>
+                        </div>
+                        <div className="bg-black/50 p-4 rounded-xl border border-zinc-800">
+                          <p className="text-orange-400 mb-1 leading-none">HTTP API ENDPOINT</p>
                           <p className="text-zinc-300 break-all">{window.location.origin}/api/config</p>
                         </div>
                         <div className="bg-black/50 p-4 rounded-xl border border-zinc-800">
                           <p className="text-blue-400 mb-1 leading-none">AI ENGINE</p>
-                          <p className="text-zinc-300">Google Gemini 3.1 Pro/Flash</p>
+                          <p className="text-zinc-300">Google Gemini / Custom Backend</p>
                         </div>
                       </div>
                     </div>
