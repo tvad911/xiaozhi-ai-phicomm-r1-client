@@ -46,12 +46,14 @@ class MainService : Service() {
         super.onCreate()
         startForegroundNotification()
         
-        // Init Web Server
+        // Init Web Server in background thread to prevent NetworkOnMainThreadException
         webServer = WebServer(this, 8081)
-        try {
-            webServer?.start()
-        } catch (e: Exception) {
-            e.printStackTrace()
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                webServer?.start()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
 
         // Init mDNS

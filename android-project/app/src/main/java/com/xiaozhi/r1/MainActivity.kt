@@ -27,6 +27,15 @@ class MainActivity : Activity() {
             override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
                 return false
             }
+
+            override fun onReceivedError(view: WebView, errorCode: Int, description: String, failingUrl: String) {
+                if (failingUrl == "http://localhost:8081" || failingUrl == "http://localhost:8081/") {
+                    // Retry after 1 second
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        view.loadUrl(failingUrl)
+                    }, 1000)
+                }
+            }
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -62,7 +71,9 @@ class MainActivity : Activity() {
             e.printStackTrace()
         }
 
-        // Connect to local NanoHTTPD server
-        webView.loadUrl("http://localhost:8081")
+        // Delay to wait for NanoHTTPD to start
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            webView.loadUrl("http://localhost:8081")
+        }, 1500)
     }
 }
