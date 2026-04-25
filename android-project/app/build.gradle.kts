@@ -9,8 +9,8 @@ android {
 
     defaultConfig {
         applicationId = "com.xiaozhi.r1"
-        minSdk = 21
-        targetSdk = 30
+        minSdk = 22
+        targetSdk = 28
         versionCode = 1
         versionName = "1.0"
         
@@ -18,6 +18,11 @@ android {
             cmake {
                 cppFlags += "-std=c++11"
             }
+        }
+        
+        ndk {
+            abiFilters.add("armeabi-v7a")
+            abiFilters.add("arm64-v8a")
         }
     }
 
@@ -51,7 +56,7 @@ android {
 
 dependencies {
     // Networking
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:okhttp:3.12.13")
     implementation("com.google.code.gson:gson:2.10.1")
     
     // Embedded Web Server
@@ -63,6 +68,9 @@ dependencies {
     
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+
+    // MQTT
+    implementation("org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5")
 
     // Wake Word Engine
     implementation("ai.picovoice:porcupine-android:3.0.1")

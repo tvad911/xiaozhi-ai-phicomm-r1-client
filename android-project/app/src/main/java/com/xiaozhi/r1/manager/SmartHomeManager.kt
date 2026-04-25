@@ -1,6 +1,15 @@
 package com.xiaozhi.r1.manager
 
 import android.util.Log
+import org.eclipse.paho.client.mqttv3.IMqttActionListener
+import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken
+import org.eclipse.paho.client.mqttv3.IMqttToken
+import org.eclipse.paho.client.mqttv3.MqttAsyncClient
+import org.eclipse.paho.client.mqttv3.MqttCallback
+import org.eclipse.paho.client.mqttv3.MqttConnectOptions
+import org.eclipse.paho.client.mqttv3.MqttMessage
+import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence
+import org.json.JSONObject
 
 data class SmartDevice(
     val id: String,
@@ -11,8 +20,7 @@ data class SmartDevice(
 )
 
 class SmartHomeManager {
-    // In a full implementation, we'd use org.eclipse.paho.client.mqttv3
-    // Here we provide the architectural skeleton
+    private var mqttClient: MqttAsyncClient? = null
     
     var mqttStatus: String = "connected" // Default connected for demonstration
     private val devices = mutableMapOf<String, SmartDevice>()
@@ -27,25 +35,94 @@ class SmartHomeManager {
     var onMessageReceived: ((String, String) -> Unit)? = null
 
     fun connect(brokerUrl: String, clientId: String, username: String?, password: String?) {
-        mqttStatus = "connecting"
-        Log.d("SmartHomeManager", "Connecting to MQTT broker: $brokerUrl")
-        
-        // Placeholder for MQTT connection success
-        Thread {
-            Thread.sleep(1000)
-            mqttStatus = "connected"
-            // Subscribe to relevant topics
-            subscribe("homeassistant/+/+/state")
-        }.start()
+        try {
+            mqttStatus = "connecting"
+            Log.d("SmartHomeManager", "Connecting to MQTT broker: $brokerUrl")
+            
+            mqttClient = MqttAsyncClient(brokerUrl, clientId, MemoryPersistence())
+            
+            val options = MqttConnectOptions()
+            options.isAutomaticReconnect = true
+            options.isCleanSession = true
+            options.connectionTimeout = 10
+            if (!username.isNullOrEmpty()) options.userName = username
+            if (!password.isNullOrEmpty()) options.password = password.toCharArray()
+            
+            mqttClient?.setCallback(object : MqttCallback {
+                override fun connectionLost(cause: Throwable?) {
+                    mqttStatus = "disconnected"
+                    Log.w("SmartHomeManager", "MQTT Connection lost")
+                }
+
+                override fun messageArrived(topic: String?, message: MqttMessage?) {
+                    topic?.let { t ->
+                        message?.let { m ->
+                            val payload = String(m.payload)
+                            handleIncomingMessage(t, payload)
+                        }
+                    }
+                }
+
+                override fun deliveryComplete(token: IMqttDeliveryToken?) {}
+            })
+            
+            mqttClient?.connect(options, null, object : IMqttActionListener {
+                override fun onSuccess(asyncActionToken: IMqttToken?) {
+                    mqttStatus = "connected"
+                    Log.i("SmartHomeManager", "MQTT Connected")
+                    subscribe("homeassistant/+/+/state")
+                }
+
+                override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
+                    mqttStatus = "disconnected"
+                    Log.e("SmartHomeManager", "MQTT Connection failed", exception)
+                }
+            })
+        } catch (e: Exception) {
+            e.printStackTrace()
+            mqttStatus = "disconnected"
+        }
+    }
+
+    private fun handleIncomingMessage(topic: String, payload: String) {
+        onMessageReceived?.invoke(topic, payload)
+        // Topic format: homeassistant/[type]/[id]/state
+        val parts = topic.split("/")
+        if (parts.size >= 4) {
+            val type = parts[1]
+            val id = parts[2]
+            
+            val device = devices[id]
+            if (device != null) {
+                // simple assumption: payload is raw string state
+                devices[id] = device.copy(state = payload.lowercase())
+            } else {
+                // Auto discovery placeholder
+                devices[id] = SmartDevice(id, "Discovered $id", type, payload.lowercase())
+            }
+        }
     }
 
     private fun subscribe(topic: String) {
-        Log.d("SmartHomeManager", "Subscribed to $topic")
+        try {
+            mqttClient?.subscribe(topic, 1)
+            Log.d("SmartHomeManager", "Subscribed to $topic")
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     fun publish(topic: String, payload: String) {
-        if (mqttStatus != "connected") return
-        Log.d("SmartHomeManager", "Publishing to $topic: $payload")
+        try {
+            if (mqttClient?.isConnected == true) {
+                val message = MqttMessage(payload.toByteArray())
+                message.qos = 1
+                mqttClient?.publish(topic, message)
+                Log.d("SmartHomeManager", "Published to $topic: $payload")
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     fun toggleDevice(deviceId: String) {
@@ -65,6 +142,12 @@ class SmartHomeManager {
     }
 
     fun disconnect() {
+        try {
+            mqttClient?.disconnect()
+            mqttClient = null
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
         mqttStatus = "disconnected"
     }
 }

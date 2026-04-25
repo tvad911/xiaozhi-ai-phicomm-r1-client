@@ -25,7 +25,7 @@ class AudioRecorder {
         val bufferSize = Math.max(minBufferSize, SAMPLE_RATE / 10) // 100ms buffer (1600 samples)
         
         audioRecord = AudioRecord(
-            MediaRecorder.AudioSource.MIC,
+            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
             SAMPLE_RATE,
             CHANNEL_CONFIG,
             AUDIO_FORMAT,
@@ -42,21 +42,21 @@ class AudioRecorder {
             val readSize = audioRecord?.read(buffer, 0, buffer.size) ?: 0
             if (readSize > 0) {
                 // Convert bytes to shorts for RMS calculation
-                java.nio.ByteBuffer.wrap(buffer).order(java.nio.ByteOrder.LITTLE_ENDIAN).asShortBuffer().get(shortBuffer)
+                java.nio.ByteBuffer.wrap(buffer, 0, readSize).order(java.nio.ByteOrder.LITTLE_ENDIAN).asShortBuffer().get(shortBuffer, 0, readSize / 2)
                 
                 // Calculate RMS energy to detect Voice Activity
                 var sum = 0.0
-                for (i in 0 until (readSize / 2)) {
+                val validShorts = readSize / 2
+                for (i in 0 until validShorts) {
                     val sample = shortBuffer[i].toDouble()
                     sum += sample * sample
                 }
-                val rms = sqrt(sum / (readSize / 2))
+                val rms = if (validShorts > 0) sqrt(sum / validShorts) else 0.0
                 
                 val isSpeech = rms > SILENCE_THRESHOLD
                 
-                // In a real app, we would use a proper VAD library (like WebRTC VAD)
-                // Here we just pass the raw data, and maybe flag silence
-                emit(buffer.copyOf(readSize))
+                // Emit a copy of the valid data range
+                emit(buffer.copyOfRange(0, readSize))
             }
         }
     }

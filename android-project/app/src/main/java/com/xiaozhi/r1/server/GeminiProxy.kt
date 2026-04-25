@@ -1,15 +1,17 @@
 package com.xiaozhi.r1.server
 
-import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.RequestBody
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import java.util.concurrent.TimeUnit
+import com.xiaozhi.r1.util.TrustManagerUtil
 
 class GeminiProxy {
     private val client = OkHttpClient.Builder()
+        .apply { TrustManagerUtil.applyUnsafeSslIfNecessary(this) }
         .connectTimeout(15, TimeUnit.SECONDS)
         .writeTimeout(15, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
@@ -49,7 +51,7 @@ class GeminiProxy {
             add("contents", contentsArray)
         }
 
-        val requestBody = requestJson.toString().toRequestBody("application/json".toMediaType())
+        val requestBody = RequestBody.create(MediaType.parse("application/json"), requestJson.toString())
         val request = Request.Builder()
             .url(url)
             .post(requestBody)
@@ -58,20 +60,20 @@ class GeminiProxy {
         try {
             val response = client.newCall(request).execute()
             if (!response.isSuccessful) {
-                val errorBody = response.body?.string()
+                val errorBody = response.body()?.string()
                 if (errorBody != null) {
                     try {
                         val errorObj = gson.fromJson(errorBody, JsonObject::class.java).getAsJsonObject("error")
                         val message = errorObj.get("message").asString
                         return "Error: $message"
                     } catch (e: Exception) {
-                        return "Error: HTTP ${response.code} - $errorBody"
+                        return "Error: HTTP ${response.code()} - $errorBody"
                     }
                 }
-                return "Error: HTTP ${response.code}"
+                return "Error: HTTP ${response.code()}"
             }
             
-            val responseBody = response.body?.string() ?: return "Error: Empty response"
+            val responseBody = response.body()?.string() ?: return "Error: Empty response"
             
             // Parse response
             val rootObj = gson.fromJson(responseBody, JsonObject::class.java)

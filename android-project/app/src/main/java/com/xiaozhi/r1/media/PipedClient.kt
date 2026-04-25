@@ -6,6 +6,7 @@ import com.google.gson.Gson
 import com.google.gson.JsonObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.xiaozhi.r1.util.TrustManagerUtil
 
 data class TrackInfo(
     val id: String,
@@ -16,10 +17,11 @@ data class TrackInfo(
 )
 
 class PipedClient {
-    private val client = OkHttpClient()
-    private val gson = Gson()
-    // Using a public instances list. In production, we'd cycle through fallback instances.
     private val BASE_URL = "https://pipedapi.kavin.rocks"
+    private val client = OkHttpClient.Builder().apply {
+        TrustManagerUtil.applyUnsafeSslIfNecessary(this)
+    }.build()
+    private val gson = Gson()
 
     suspend fun search(query: String): List<TrackInfo> = withContext(Dispatchers.IO) {
         val url = "$BASE_URL/search?q=${java.net.URLEncoder.encode(query, "UTF-8")}&filter=music_songs"
@@ -29,7 +31,7 @@ class PipedClient {
             val response = client.newCall(request).execute()
             if (!response.isSuccessful) return@withContext emptyList()
             
-            val responseBody = response.body?.string() ?: return@withContext emptyList()
+            val responseBody = response.body()?.string() ?: return@withContext emptyList()
             val root = gson.fromJson(responseBody, JsonObject::class.java)
             val items = root.getAsJsonArray("items")
             
@@ -63,7 +65,7 @@ class PipedClient {
             val response = client.newCall(request).execute()
             if (!response.isSuccessful) return@withContext null
             
-            val responseBody = response.body?.string() ?: return@withContext null
+            val responseBody = response.body()?.string() ?: return@withContext null
             val root = gson.fromJson(responseBody, JsonObject::class.java)
             val audioStreams = root.getAsJsonArray("audioStreams")
             

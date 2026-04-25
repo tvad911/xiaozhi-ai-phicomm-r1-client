@@ -10,6 +10,7 @@ import com.xiaozhi.r1.manager.WifiManager
 import com.xiaozhi.r1.manager.BluetoothManager
 import com.xiaozhi.r1.media.PipedClient
 import com.xiaozhi.r1.media.TrackInfo
+import com.xiaozhi.r1.util.CrashLogger
 import kotlinx.coroutines.runBlocking
 
 class ApiHandler(private val context: Context) {
@@ -19,7 +20,7 @@ class ApiHandler(private val context: Context) {
     private val wifiManager = WifiManager(context)
     private val bluetoothManager = BluetoothManager(context)
     private val pipedClient = PipedClient()
-    private val smartHomeManager = com.xiaozhi.r1.manager.SmartHomeManager()
+    private val mainService get() = com.xiaozhi.r1.MainService.instance
 
     fun handleRequest(session: NanoHTTPD.IHTTPSession): NanoHTTPD.Response {
         val uri = session.uri
@@ -45,6 +46,17 @@ class ApiHandler(private val context: Context) {
                 uri.startsWith("/api/wifi/") -> handleWifi(session)
                 uri.startsWith("/api/media/") -> handleMedia(session)
                 uri.startsWith("/api/smarthome/") -> handleSmartHome(session)
+                uri.startsWith("/api/ota/") -> handleOta(session)
+                uri == "/api/console/send" && method == NanoHTTPD.Method.POST -> handleConsoleSend(session)
+                uri.startsWith("/api/led/") -> handleLed(session)
+                uri.startsWith("/api/audio/") || uri == "/api/volume" || uri.startsWith("/api/eq/") -> handleAudio(session)
+                uri.startsWith("/api/alarms/") -> handleAlarms(session)
+                uri.startsWith("/api/timers/") -> handleTimers(session)
+                uri.startsWith("/api/casting/") -> handleCasting(session)
+                uri.startsWith("/api/device/") -> handleDevice(session)
+                uri.startsWith("/api/voiceprints") -> handleVoicePrints(session)
+                uri == "/api/logs" && method == NanoHTTPD.Method.GET -> handleGetLogs()
+                uri == "/api/logs/clear" && method == NanoHTTPD.Method.POST -> handleClearLogs()
                 else -> createJsonResponse(NanoHTTPD.Response.Status.NOT_FOUND, mapOf("error" to "Endpoint not found"))
             }
         } catch (e: Exception) {
@@ -87,6 +99,15 @@ class ApiHandler(private val context: Context) {
     private fun handleAuthStatus(): NanoHTTPD.Response {
         val isAuthRequired = configManager.currentConfig.isWebAuthEnabled
         return createJsonResponse(NanoHTTPD.Response.Status.OK, mapOf("authRequired" to isAuthRequired))
+    }
+
+    private fun handleGetLogs(): NanoHTTPD.Response {
+        return createJsonResponse(NanoHTTPD.Response.Status.OK, CrashLogger.getLogs())
+    }
+
+    private fun handleClearLogs(): NanoHTTPD.Response {
+        CrashLogger.clear()
+        return createJsonResponse(NanoHTTPD.Response.Status.OK, mapOf("success" to true))
     }
 
     private fun handleGetConfig(): NanoHTTPD.Response {
@@ -272,6 +293,7 @@ class ApiHandler(private val context: Context) {
     private fun handleSmartHome(session: NanoHTTPD.IHTTPSession): NanoHTTPD.Response {
         val uri = session.uri
         val method = session.method
+        val smartHomeManager = mainService?.getSmartHomeManager() ?: return createJsonResponse(NanoHTTPD.Response.Status.INTERNAL_ERROR, mapOf("error" to "SmartHomeManager not ready"))
 
         return try {
             when {
@@ -292,6 +314,254 @@ class ApiHandler(private val context: Context) {
             }
         } catch (e: Exception) {
             e.printStackTrace()
+            createJsonResponse(NanoHTTPD.Response.Status.INTERNAL_ERROR, mapOf("error" to e.message))
+        }
+    }
+
+    private fun handleOta(session: NanoHTTPD.IHTTPSession): NanoHTTPD.Response {
+        val uri = session.uri
+        val method = session.method
+        val otaManager = mainService?.getOtaManager() ?: return createJsonResponse(NanoHTTPD.Response.Status.INTERNAL_ERROR, mapOf("error" to "OtaManager not ready"))
+
+        return try {
+            when {
+                uri == "/api/ota/info" && method == NanoHTTPD.Method.GET -> {
+                    createJsonResponse(NanoHTTPD.Response.Status.OK, mapOf("version" to "1.0", "rootAccess" to true, "deviceModel" to "Phicomm R1"))
+                }
+                uri == "/api/ota/upload" && method == NanoHTTPD.Method.POST -> {
+                    val files = mutableMapOf<String, String>()
+                    session.parseBody(files)
+                    val uploadedFilePath = files["file"]
+                    if (uploadedFilePath != null) {
+                        val file = java.io.File(uploadedFilePath)
+                        val inputStream = java.io.FileInputStream(file)
+                        val fileName = session.parameters["file"]?.firstOrNull() ?: "update.apk"
+                        val success = otaManager.installFromUpload(inputStream, fileName)
+                        if (success) {
+                            createJsonResponse(NanoHTTPD.Response.Status.OK, mapOf("success" to true, "message" to "Device is restarting..."))
+                        } else {
+                            createJsonResponse(NanoHTTPD.Response.Status.INTERNAL_ERROR, mapOf("error" to "Failed to install update"))
+                        }
+                    } else {
+                        createJsonResponse(NanoHTTPD.Response.Status.BAD_REQUEST, mapOf("error" to "No file uploaded"))
+                    }
+                }
+                uri == "/api/ota/install" && method == NanoHTTPD.Method.POST -> {
+                    createJsonResponse(NanoHTTPD.Response.Status.NOT_IMPLEMENTED, mapOf("error" to "Not implemented yet"))
+                }
+                else -> createJsonResponse(NanoHTTPD.Response.Status.NOT_FOUND, mapOf("error" to "Endpoint not found"))
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            createJsonResponse(NanoHTTPD.Response.Status.INTERNAL_ERROR, mapOf("error" to e.message))
+        }
+    }
+
+    private fun handleConsoleSend(session: NanoHTTPD.IHTTPSession): NanoHTTPD.Response {
+        val params = getBodyParams(session)
+        val text = params["text"] as? String
+        if (text.isNullOrEmpty()) {
+            return createJsonResponse(NanoHTTPD.Response.Status.BAD_REQUEST, mapOf("error" to "Text is empty"))
+        }
+
+        mainService?.sendTextCommand(text)
+        return createJsonResponse(NanoHTTPD.Response.Status.OK, mapOf("success" to true))
+    }
+
+    private fun handleLed(session: NanoHTTPD.IHTTPSession): NanoHTTPD.Response {
+        val uri = session.uri
+        val method = session.method
+        val ledManager = mainService?.getLedManager() ?: return createJsonResponse(NanoHTTPD.Response.Status.INTERNAL_ERROR, mapOf("error" to "LedManager not ready"))
+
+        return try {
+            when {
+                uri == "/api/led/status" && method == NanoHTTPD.Method.GET -> {
+                    createJsonResponse(NanoHTTPD.Response.Status.OK, mapOf("mode" to "on", "color" to "#ffffff"))
+                }
+                uri == "/api/led/mode" && method == NanoHTTPD.Method.POST -> {
+                    val params = getBodyParams(session)
+                    val mode = params["mode"] as? String ?: "on"
+                    ledManager.setMode(mode)
+                    createJsonResponse(NanoHTTPD.Response.Status.OK, mapOf("success" to true))
+                }
+                uri == "/api/led/color" && method == NanoHTTPD.Method.POST -> {
+                    val params = getBodyParams(session)
+                    val color = params["color"] as? String ?: "#ea580c"
+                    ledManager.setColor(color)
+                    createJsonResponse(NanoHTTPD.Response.Status.OK, mapOf("success" to true))
+                }
+                else -> createJsonResponse(NanoHTTPD.Response.Status.NOT_FOUND, mapOf("error" to "Endpoint not found"))
+            }
+        } catch (e: Exception) {
+            createJsonResponse(NanoHTTPD.Response.Status.INTERNAL_ERROR, mapOf("error" to e.message))
+        }
+    }
+
+    private fun handleAudio(session: NanoHTTPD.IHTTPSession): NanoHTTPD.Response {
+        val uri = session.uri
+        val method = session.method
+        val audioManager = mainService?.getAudioManager() ?: return createJsonResponse(NanoHTTPD.Response.Status.INTERNAL_ERROR, mapOf("error" to "AudioManager not ready"))
+
+        return try {
+            when {
+                uri == "/api/volume" && method == NanoHTTPD.Method.GET -> {
+                    createJsonResponse(NanoHTTPD.Response.Status.OK, mapOf("volume" to audioManager.getVolume()))
+                }
+                uri == "/api/volume" && method == NanoHTTPD.Method.POST -> {
+                    val params = getBodyParams(session)
+                    val level = (params["level"] as? Number)?.toInt() ?: 50
+                    audioManager.setVolume(level)
+                    createJsonResponse(NanoHTTPD.Response.Status.OK, mapOf("success" to true))
+                }
+                uri == "/api/eq/bands" && method == NanoHTTPD.Method.GET -> {
+                    createJsonResponse(NanoHTTPD.Response.Status.OK, mapOf("bands" to mapOf("bass" to 0, "mid" to 0, "treble" to 0)))
+                }
+                uri == "/api/eq/bands" && method == NanoHTTPD.Method.POST -> {
+                    val params = getBodyParams(session)
+                    val bass = (params["bass"] as? Number)?.toShort() ?: 0
+                    val mid = (params["mid"] as? Number)?.toShort() ?: 0
+                    val treble = (params["treble"] as? Number)?.toShort() ?: 0
+                    audioManager.setEqBands(bass, mid, treble)
+                    createJsonResponse(NanoHTTPD.Response.Status.OK, mapOf("success" to true))
+                }
+                else -> createJsonResponse(NanoHTTPD.Response.Status.NOT_FOUND, mapOf("error" to "Endpoint not found"))
+            }
+        } catch (e: Exception) {
+            createJsonResponse(NanoHTTPD.Response.Status.INTERNAL_ERROR, mapOf("error" to e.message))
+        }
+    }
+
+    private fun handleAlarms(session: NanoHTTPD.IHTTPSession): NanoHTTPD.Response {
+        val uri = session.uri
+        val method = session.method
+        val alarmManager = mainService?.getAlarmManager() ?: return createJsonResponse(NanoHTTPD.Response.Status.INTERNAL_ERROR, mapOf("error" to "AlarmManager not ready"))
+
+        return try {
+            when {
+                uri == "/api/alarms" && method == NanoHTTPD.Method.GET -> {
+                    createJsonResponse(NanoHTTPD.Response.Status.OK, mapOf("alarms" to emptyList<Any>()))
+                }
+                uri == "/api/alarms" && method == NanoHTTPD.Method.POST -> {
+                    createJsonResponse(NanoHTTPD.Response.Status.NOT_IMPLEMENTED, mapOf("error" to "Not implemented yet"))
+                }
+                else -> createJsonResponse(NanoHTTPD.Response.Status.NOT_FOUND, mapOf("error" to "Endpoint not found"))
+            }
+        } catch (e: Exception) {
+            createJsonResponse(NanoHTTPD.Response.Status.INTERNAL_ERROR, mapOf("error" to e.message))
+        }
+    }
+
+    private fun handleTimers(session: NanoHTTPD.IHTTPSession): NanoHTTPD.Response {
+        return createJsonResponse(NanoHTTPD.Response.Status.NOT_IMPLEMENTED, mapOf("error" to "Not implemented yet"))
+    }
+
+    private fun handleCasting(session: NanoHTTPD.IHTTPSession): NanoHTTPD.Response {
+        val uri = session.uri
+        val method = session.method
+        val castingManager = mainService?.getCastingManager() ?: return createJsonResponse(NanoHTTPD.Response.Status.INTERNAL_ERROR, mapOf("error" to "CastingManager not ready"))
+
+        return try {
+            when {
+                uri == "/api/casting/status" && method == NanoHTTPD.Method.GET -> {
+                    createJsonResponse(NanoHTTPD.Response.Status.OK, mapOf("airplay" to true, "dlna" to true, "deviceName" to "Phicomm R1"))
+                }
+                uri == "/api/casting/airplay" && method == NanoHTTPD.Method.POST -> {
+                    val params = getBodyParams(session)
+                    val enabled = params["enabled"] as? Boolean ?: true
+                    castingManager.setAirplay(enabled)
+                    createJsonResponse(NanoHTTPD.Response.Status.OK, mapOf("success" to true))
+                }
+                uri == "/api/casting/dlna" && method == NanoHTTPD.Method.POST -> {
+                    val params = getBodyParams(session)
+                    val enabled = params["enabled"] as? Boolean ?: true
+                    castingManager.setDlna(enabled)
+                    createJsonResponse(NanoHTTPD.Response.Status.OK, mapOf("success" to true))
+                }
+                uri == "/api/casting/name" && method == NanoHTTPD.Method.POST -> {
+                    createJsonResponse(NanoHTTPD.Response.Status.NOT_IMPLEMENTED, mapOf("error" to "Not implemented yet"))
+                }
+                else -> createJsonResponse(NanoHTTPD.Response.Status.NOT_FOUND, mapOf("error" to "Endpoint not found"))
+            }
+        } catch (e: Exception) {
+            createJsonResponse(NanoHTTPD.Response.Status.INTERNAL_ERROR, mapOf("error" to e.message))
+        }
+    }
+
+    private fun handleDevice(session: NanoHTTPD.IHTTPSession): NanoHTTPD.Response {
+        val uri = session.uri
+        val method = session.method
+        val deviceManager = mainService?.getDeviceManager() ?: return createJsonResponse(NanoHTTPD.Response.Status.INTERNAL_ERROR, mapOf("error" to "DeviceManager not ready"))
+
+        return try {
+            when {
+                uri == "/api/device/info" && method == NanoHTTPD.Method.GET -> {
+                    createJsonResponse(NanoHTTPD.Response.Status.OK, mapOf(
+                        "deviceId" to deviceManager.deviceId,
+                        "bound" to true // TODO check if bound
+                    ))
+                }
+                uri == "/api/device/bind" && method == NanoHTTPD.Method.GET -> {
+                    createJsonResponse(NanoHTTPD.Response.Status.OK, mapOf("code" to deviceManager.generateBindingCode()))
+                }
+                uri == "/api/device/bind" && method == NanoHTTPD.Method.POST -> {
+                    val params = getBodyParams(session)
+                    val code = params["code"] as? String ?: ""
+                    val success = deviceManager.validateBindingCode(code)
+                    if (success) {
+                        createJsonResponse(NanoHTTPD.Response.Status.OK, mapOf("success" to true))
+                    } else {
+                        createJsonResponse(NanoHTTPD.Response.Status.BAD_REQUEST, mapOf("error" to "Invalid or expired code"))
+                    }
+                }
+                uri == "/api/device/agents" && method == NanoHTTPD.Method.GET -> {
+                    val agents = deviceManager.fetchAgentList("", "")
+                    createJsonResponse(NanoHTTPD.Response.Status.OK, mapOf("agents" to agents))
+                }
+                uri == "/api/device/history" && method == NanoHTTPD.Method.GET -> {
+                    val agentId = session.parameters["agentId"]?.firstOrNull() ?: "1"
+                    val history = deviceManager.fetchChatHistory("", agentId)
+                    createJsonResponse(NanoHTTPD.Response.Status.OK, mapOf("history" to history))
+                }
+                else -> createJsonResponse(NanoHTTPD.Response.Status.NOT_FOUND, mapOf("error" to "Endpoint not found"))
+            }
+        } catch (e: Exception) {
+            createJsonResponse(NanoHTTPD.Response.Status.INTERNAL_ERROR, mapOf("error" to e.message))
+        }
+    }
+
+    private fun handleVoicePrints(session: NanoHTTPD.IHTTPSession): NanoHTTPD.Response {
+        val uri = session.uri
+        val method = session.method
+        val voicePrintManager = mainService?.getVoicePrintManager() ?: return createJsonResponse(NanoHTTPD.Response.Status.INTERNAL_ERROR, mapOf("error" to "VoicePrintManager not ready"))
+
+        return try {
+            when {
+                uri == "/api/voiceprints" && method == NanoHTTPD.Method.GET -> {
+                    createJsonResponse(NanoHTTPD.Response.Status.OK, mapOf("voicePrints" to voicePrintManager.getVoicePrints()))
+                }
+                uri == "/api/voiceprints/register" && method == NanoHTTPD.Method.POST -> {
+                    val params = getBodyParams(session)
+                    val name = params["name"] as? String ?: "Unknown"
+                    val success = voicePrintManager.registerVoicePrint(name, "")
+                    if (success) {
+                        createJsonResponse(NanoHTTPD.Response.Status.OK, mapOf("success" to true))
+                    } else {
+                        createJsonResponse(NanoHTTPD.Response.Status.INTERNAL_ERROR, mapOf("error" to "Failed to register"))
+                    }
+                }
+                uri == "/api/voiceprints/delete" && method == NanoHTTPD.Method.POST -> {
+                    val params = getBodyParams(session)
+                    val id = params["id"] as? String ?: ""
+                    val success = voicePrintManager.deleteVoicePrint(id)
+                    if (success) {
+                        createJsonResponse(NanoHTTPD.Response.Status.OK, mapOf("success" to true))
+                    } else {
+                        createJsonResponse(NanoHTTPD.Response.Status.NOT_FOUND, mapOf("error" to "Voice print not found"))
+                    }
+                }
+                else -> createJsonResponse(NanoHTTPD.Response.Status.NOT_FOUND, mapOf("error" to "Endpoint not found"))
+            }
+        } catch (e: Exception) {
             createJsonResponse(NanoHTTPD.Response.Status.INTERNAL_ERROR, mapOf("error" to e.message))
         }
     }
