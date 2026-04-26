@@ -11,8 +11,8 @@ android {
         applicationId = "com.xiaozhi.r1"
         minSdk = 22
         targetSdk = 28
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 4
+        versionName = "1.4.3"
         
         externalNativeBuild {
             cmake {
